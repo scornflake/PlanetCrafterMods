@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace CustomFlashlight
 {
-    [BepInPlugin("aedenthorn.CustomFlashlight", "Custom Flashlight", "0.3.0")]
+    [BepInPlugin("aedenthorn.CustomFlashlight", "Custom Flashlight", "0.4.0")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -28,7 +28,7 @@ namespace CustomFlashlight
             if (isDebug.Value)
                 Debug.Log((pref ? typeof(BepInExPlugin).Namespace + " " : "") + str);
         }
-        private void Awake()
+        public void Awake()
         {
 
             context = this;
@@ -47,29 +47,22 @@ namespace CustomFlashlight
 
         }
 
-        [HarmonyPatch(typeof(MultiToolLight), "Start")]
-        static class MultiToolLight_Start_Patch
+        [HarmonyPatch(typeof(MultiToolLight), "UpdateLightIntensity")]
+        public static class MultiToolLight_Start_Patch
         {
-            static void Postfix(MultiToolLight __instance)
+            public static bool Prefix(GameObject light)
             {
                 if (!modEnabled.Value)
-                    return;
-                Light light = __instance.toolLightT1.GetComponent<Light>();
-                light.innerSpotAngle = spotlightInnerAngle.Value;
-                light.spotAngle = spotlightAngle.Value;
-                light.color = color.Value;
-                light.useColorTemperature = useColorTemp.Value;
-                light.colorTemperature = colorTemp.Value;
-                light.intensity = intensity.Value;
-                light.range = range.Value;
-                light = __instance.toolLightT2.GetComponent<Light>();
-                light.innerSpotAngle = spotlightInnerAngle.Value;
-                light.spotAngle = spotlightAngle.Value;
-                light.color = color.Value;
-                light.useColorTemperature = useColorTemp.Value;
-                light.colorTemperature = colorTemp.Value;
-                light.intensity = intensity.Value;
-                light.range = range.Value;
+                    return true;
+                Light l = light.GetComponent<Light>();
+                l.innerSpotAngle = spotlightInnerAngle.Value;
+                l.spotAngle = spotlightAngle.Value;
+                l.color = color.Value;
+                l.useColorTemperature = useColorTemp.Value;
+                l.colorTemperature = colorTemp.Value;
+                l.intensity = intensity.Value;
+                l.range = range.Value;
+                return false;
             }
         }
     }

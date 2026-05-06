@@ -15,7 +15,7 @@ using Image = UnityEngine.UI.Image;
 
 namespace StorageCustomization
 {
-    [BepInPlugin("aedenthorn.StorageCustomization", "Storage Customization", "0.6.0")]
+    [BepInPlugin("aedenthorn.StorageCustomization", "Storage Customization", "0.7.0")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -63,40 +63,40 @@ namespace StorageCustomization
 
         }
         [HarmonyPatch(typeof(PlayerEquipment), "UpdateAfterEquipmentChange")]
-        static class PlayerEquipment_UpdateAfterEquipmentChange_Patch
+        public static class PlayerEquipment_UpdateAfterEquipmentChange_Patch
         {
-            static void Prefix(PlayerEquipment __instance, WorldObject _worldObject, bool _hasBeenAdded, bool _isFirstInit)
+            public static void Prefix(WorldObject worldObject, bool hasBeenAdded, bool isFirstInit)
             {
                 if (!modEnabled.Value)
                     return;
-                GroupItem groupItem = (GroupItem)_worldObject.GetGroup();
-                if (groupItem.GetEquipableType() == DataConfig.EquipableType.BackpackIncrease && !_isFirstInit)
+                GroupItem groupItem = (GroupItem)worldObject.GetGroup();
+                if (groupItem.GetEquipableType() == DataConfig.EquipableType.BackpackIncrease && !isFirstInit)
                 {
-                    switch (_worldObject.GetGroup().GetAssociatedGameObject().name)
+                    switch (worldObject.GetGroup().GetAssociatedGameObject().name)
                     {
                         case "Backpack1":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value = backpack1Adds.Value;
+                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack1Adds.Value;
                             break;
                         case "Backpack2":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value = backpack2Adds.Value;
+                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack2Adds.Value;
                             break;
                         case "Backpack3":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value = backpack3Adds.Value;
+                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack3Adds.Value;
                             break;
                         case "Backpack4":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value = backpack4Adds.Value;
+                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack4Adds.Value;
                             break;
                         case "Backpack5":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value = backpack5Adds.Value;
+                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack5Adds.Value;
                             break;
                     }
-                    if (_hasBeenAdded)
+                    if (hasBeenAdded)
                     {
-                        Dbgl($"Added {_worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value}");
+                        Dbgl($"Added {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value}");
                     }
                     else
                     {
-                        Dbgl($"removed {_worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(_worldObject, "group")).value}");
+                        Dbgl($"removed {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value}");
                     }
                 }
             }
@@ -111,46 +111,49 @@ namespace StorageCustomization
                 InventoryAssociated componentInParent = __instance.GetComponentInParent<InventoryAssociated>();
                 if (componentInParent == null)
                     return;
-                Inventory i = componentInParent.GetInventory();
-                if (__instance.name.StartsWith("Container1"))
+                componentInParent.GetInventory((Inventory i) =>
                 {
-                    i.SetSize(chestStorageSize.Value);
-                }
-                else if (__instance.name.StartsWith("Container2"))
-                {
-                    i.SetSize(lockerStorageSize.Value);
-                }
-                else if (__instance.name.StartsWith("Container3"))
-                {
-                    i.SetSize(locker2StorageSize.Value);
-                }
-                else if (__instance.name.StartsWith("GoldenContainer"))
-                {
-                    i.SetSize(goldenChestStorageSize.Value);
-                }
-                else if (__instance.name.StartsWith("GoldenContainer"))
-                {
-                    i.SetSize(goldenChestStorageSize.Value);
-                }
-                else if (__instance.name.StartsWith("WaterCollector1"))
-                {
-                    i.SetSize(waterCollectorStorageSize.Value);
-                }
-                else
-                    return;
-                Dbgl($"Set storage size of {__instance.name} to {i.GetSize()}");
-                componentInParent.SetInventory(i);
+
+                    if (__instance.name.StartsWith("Container1"))
+                    {
+                        i.SetSize(chestStorageSize.Value);
+                    }
+                    else if (__instance.name.StartsWith("Container2"))
+                    {
+                        i.SetSize(lockerStorageSize.Value);
+                    }
+                    else if (__instance.name.StartsWith("Container3"))
+                    {
+                        i.SetSize(locker2StorageSize.Value);
+                    }
+                    else if (__instance.name.StartsWith("GoldenContainer"))
+                    {
+                        i.SetSize(goldenChestStorageSize.Value);
+                    }
+                    else if (__instance.name.StartsWith("GoldenContainer"))
+                    {
+                        i.SetSize(goldenChestStorageSize.Value);
+                    }
+                    else if (__instance.name.StartsWith("WaterCollector1"))
+                    {
+                        i.SetSize(waterCollectorStorageSize.Value);
+                    }
+                    else
+                        return;
+                    Dbgl($"Set storage size of {__instance.name} to {i.GetSize()}");
+                    componentInParent.SetInventory(i);
+                });
             }
         }
         [HarmonyPatch(typeof(InventoryDisplayer), nameof(InventoryDisplayer.TrueRefreshContent))]
         static class InventoryDisplayer_TrueRefreshContent_Patch
         {
-            static void Postfix(InventoryDisplayer __instance, GridLayoutGroup ___grid)
+            static void Postfix(InventoryDisplayer __instance)
             {
                 if (!modEnabled.Value)
                     return;
 
-                coroutine = WaitAndFixDisplay(__instance, ___grid);
+                coroutine = WaitAndFixDisplay(__instance, __instance.GetComponentInChildren<GridLayoutGroup>());
                 __instance.StartCoroutine(coroutine);
             }
 
