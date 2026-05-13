@@ -5,17 +5,15 @@ using HarmonyLib;
 using SpaceCraft;
 using System;
 using System.Collections;
-using System.Diagnostics;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
-using Debug = UnityEngine.Debug;
 using Image = UnityEngine.UI.Image;
 
 namespace StorageCustomization
 {
-    [BepInPlugin("aedenthorn.StorageCustomization", "Storage Customization", "0.7.0")]
+    [BepInPlugin("aedenthorn.StorageCustomization", "Storage Customization", "0.7.2")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -33,6 +31,8 @@ namespace StorageCustomization
         public static ConfigEntry<int> backpack3Adds;
         public static ConfigEntry<int> backpack4Adds;
         public static ConfigEntry<int> backpack5Adds;
+        public static ConfigEntry<int> backpack6Adds;
+        public static ConfigEntry<int> backpack7Adds;
         private static IEnumerator coroutine;
 
         public static void Dbgl(string str = "", LogLevel logLevel = LogLevel.Debug)
@@ -40,7 +40,7 @@ namespace StorageCustomization
             if (isDebug.Value)
                 context.Logger.Log(logLevel, str);
         }
-        private void Awake()
+        public void Awake()
         {
 
             context = this;
@@ -57,6 +57,8 @@ namespace StorageCustomization
             backpack3Adds = Config.Bind<int>("Options", "Backpack3Adds", 12, "Storage added by Backpack 3");
             backpack4Adds = Config.Bind<int>("Options", "Backpack4Adds", 16, "Storage added by Backpack 4");
             backpack5Adds = Config.Bind<int>("Options", "Backpack5Adds", 23, "Storage added by Backpack 5");
+            backpack6Adds = Config.Bind<int>("Options", "Backpack6Adds", 33, "Storage added by Backpack 6");
+            backpack7Adds = Config.Bind<int>("Options", "Backpack7Adds", 42, "Storage added by Backpack 7");
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
             Dbgl("Plugin awake");
@@ -69,35 +71,48 @@ namespace StorageCustomization
             {
                 if (!modEnabled.Value)
                     return;
-                GroupItem groupItem = (GroupItem)worldObject.GetGroup();
-                if (groupItem.GetEquipableType() == DataConfig.EquipableType.BackpackIncrease && !isFirstInit)
+                try
                 {
-                    switch (worldObject.GetGroup().GetAssociatedGameObject().name)
+                    GroupItem groupItem = (GroupItem)worldObject.GetGroup();
+                    if (groupItem.GetEquipableType() == DataConfig.EquipableType.BackpackIncrease && !isFirstInit)
                     {
-                        case "Backpack1":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack1Adds.Value;
-                            break;
-                        case "Backpack2":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack2Adds.Value;
-                            break;
-                        case "Backpack3":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack3Adds.Value;
-                            break;
-                        case "Backpack4":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack4Adds.Value;
-                            break;
-                        case "Backpack5":
-                            ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value = backpack5Adds.Value;
-                            break;
+                        switch (worldObject.GetGroup().GetAssociatedGameObject().name)
+                        {
+                            case "Backpack1":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack1Adds.Value;
+                                break;
+                            case "Backpack2":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack2Adds.Value;
+                                break;
+                            case "Backpack3":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack3Adds.Value;
+                                break;
+                            case "Backpack4":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack4Adds.Value;
+                                break;
+                            case "Backpack5":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack5Adds.Value;
+                                break;
+                            case "Backpack6":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack6Adds.Value;
+                                break;
+                            case "Backpack7":
+                                ((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value = backpack7Adds.Value;
+                                break;
+                        }
+                        if (hasBeenAdded)
+                        {
+                            Dbgl($"Added {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value}");
+                        }
+                        else
+                        {
+                            Dbgl($"removed {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "_group")).value}");
+                        }
                     }
-                    if (hasBeenAdded)
-                    {
-                        Dbgl($"Added {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value}");
-                    }
-                    else
-                    {
-                        Dbgl($"removed {worldObject.GetGroup().GetAssociatedGameObject().name}, value {((GroupItem)AccessTools.FieldRefAccess<WorldObject, Group>(worldObject, "group")).value}");
-                    }
+                }
+                catch 
+                {
+                    Dbgl($"Error trying to change {worldObject?.GetGroup()?.GetAssociatedGameObject()?.name}");
                 }
             }
         }
@@ -160,8 +175,8 @@ namespace StorageCustomization
             private static IEnumerator WaitAndFixDisplay(InventoryDisplayer displayer, GridLayoutGroup grid)
             {
                 yield return new WaitForEndOfFrame();
-                Stopwatch s = new Stopwatch();
-                s.Start();
+                //Stopwatch s = new Stopwatch();
+                //s.Start();
                 RectTransform rtg = grid.GetComponent<RectTransform>();
                 float scale = rtg.lossyScale.x;
                 int childs = grid.transform.childCount;
@@ -243,8 +258,8 @@ namespace StorageCustomization
                     t.gameObject.AddComponent<MyEventTrigger>().triggers.AddRange(t.triggers);
                     DestroyImmediate(t);
                 }
-                Dbgl($"time: {s.ElapsedMilliseconds} ms");
-                s.Stop();
+                //Dbgl($"time: {s.ElapsedMilliseconds} ms");
+                //s.Stop();
                 yield break;
             }
         }
