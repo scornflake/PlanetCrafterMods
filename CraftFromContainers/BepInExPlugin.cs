@@ -14,7 +14,7 @@ using Debug = UnityEngine.Debug;
 
 namespace CraftFromContainers
 {
-    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.2")]
+    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.3")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -139,7 +139,11 @@ namespace CraftFromContainers
                     if (candidate.Name.Contains("Golden Container") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
                         continue;
 
-                    InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
+                    // Cached resolution: not strictly required here (this Prefix only fires an
+                    // async removal, nothing races its result), but used for consistency with the
+                    // Postfix below and to cut down on repeated ServerRpc round-trips for the same
+                    // container.
+                    InventoryAssociatedUtils.ResolveInventoryCached(candidate, inventory =>
                     {
                         if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
                             return;
@@ -223,6 +227,15 @@ namespace CraftFromContainers
                 // remote (non-host) clients, containers are only reachable via the proxy, not a
                 // direct InventoryAssociated. The name filter accepts everything (matching the
                 // original unrestricted scan); exclusion by name/range happens per-candidate below.
+                //
+                // This is a Harmony Postfix: it mutates __result, which the caller
+                // (PlayerBuilder_InputOnAction_Patch's "missing resources" check) reads
+                // synchronously right after this method returns. A proxy-backed candidate's
+                // Inventory can only be resolved asynchronously (see InventoryAssociatedUtils),
+                // so it can never win that race on its first resolution. ResolveInventoryCached
+                // still loses that race the first time a given container is seen, but caches the
+                // result so every subsequent call (e.g. the player retrying the build) resolves
+                // synchronously and succeeds.
                 Action<string> logDiag = isDebug.Value ? (Action<string>)(msg => Dbgl($"[diag] {msg}")) : null;
                 var candidates = InventoryAssociatedUtils.FindCandidates(_ => true, logDiag);
 
@@ -240,7 +253,7 @@ namespace CraftFromContainers
                         continue;
                     }
 
-                    InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
+                    InventoryAssociatedUtils.ResolveInventoryCached(candidate, inventory =>
                     {
                         if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
                             return;

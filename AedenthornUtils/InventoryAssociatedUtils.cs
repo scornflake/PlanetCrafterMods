@@ -167,4 +167,57 @@ public static class InventoryAssociatedUtils
 
         onResolved(null);
     }
+
+    // Keyed by Transform (stable identity for a given scene container across repeated
+    // FindCandidates() calls, which construct fresh candidate objects each time).
+    // ConditionalWeakTable so cache entries don't keep destroyed/despawned containers alive.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Transform, Inventory> ResolvedInventoryCache =
+        new System.Runtime.CompilerServices.ConditionalWeakTable<Transform, Inventory>();
+
+    /// <summary>
+    /// Same contract as <see cref="ResolveInventory"/>, but consults/populates a per-Transform
+    /// cache so that a proxy-backed candidate, once resolved asynchronously, resolves
+    /// synchronously on every subsequent call.
+    ///
+    /// This exists for callers that cannot act on a result arriving after they've already
+    /// returned — most notably a Harmony Postfix that mutates an out/ref value the original
+    /// method's caller reads synchronously (e.g. "are these ingredients available nearby?").
+    /// Plain <see cref="ResolveInventory"/> is systematically too late for such a caller on a
+    /// proxy-backed (remote-client) candidate: even once the proxy's own inventory id is
+    /// known/cached game-side, resolving it still goes through the deferred, callback-based
+    /// InventoriesHandler.GetInventoryById(id, callback) path rather than returning
+    /// synchronously (confirmed in the decompiled InventoryAssociatedProxy.GetInventory), so it
+    /// can never win the race against a synchronous Postfix no matter how many times it's asked.
+    /// Caching the resolved Inventory here means the first attempt for a given container still
+    /// loses that race (and so still fails/reports stale data), but every subsequent attempt
+    /// (e.g. the player retrying the action) succeeds. Callers without this synchronous-consumer
+    /// problem (e.g. one that just performs an action once the callback eventually fires, with
+    /// nothing racing it) should keep using the uncached <see cref="ResolveInventory"/>.
+    /// </summary>
+    public static void ResolveInventoryCached(InventoryAssociatedCandidate candidate, Action<Inventory> onResolved)
+    {
+        if (candidate == null || onResolved == null)
+        {
+            return;
+        }
+
+        if (candidate.Transform != null && ResolvedInventoryCache.TryGetValue(candidate.Transform, out var cached))
+        {
+            onResolved(cached);
+            return;
+        }
+
+        ResolveInventory(candidate, inventory =>
+        {
+            if (candidate.Transform != null && inventory != null)
+            {
+                // ConditionalWeakTable<TKey,TValue> on this project's target framework (net480)
+                // predates AddOrUpdate (added in .NET Core 3.0 / .NET Standard 2.1); Add() throws
+                // if the key is already present, so remove first to make this idempotent.
+                ResolvedInventoryCache.Remove(candidate.Transform);
+                ResolvedInventoryCache.Add(candidate.Transform, inventory);
+            }
+            onResolved(inventory);
+        });
+    }
 }
