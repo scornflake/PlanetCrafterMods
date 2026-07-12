@@ -159,7 +159,6 @@ A scan of the repository found other mods with the same anti-pattern:
 | AutoMine | `BepInExPlugin.cs:196` | Direct `inventory.AddItem()` on player backpack | Auto-mining items into inventory |
 | ChatCommands | `BepInExPlugin.cs:279` | `CreateNewWorldObject` + direct `AddItem` | `/give` command spawning items into backpack |
 | SpawnObject | `BepInExPlugin.cs:232` | `CreateNewWorldObject` + direct `AddItem` | Spawning objects into inventory |
-| ConstructToInventory | `BepInExPlugin.cs:56` | `CreateNewWorldObject` + direct `AddItem` | Auto-storing deconstructed items |
 
 ### Mods Using Safe APIs (No Fix Needed)
 
@@ -168,6 +167,7 @@ A scan of the repository found other mods with the same anti-pattern:
 | ChatCommands | `BepInExPlugin.cs:288` | `CreateAndDropOnFloor(...)` | ✓ correct |
 | SpawnObject | `BepInExPlugin.cs:242` | `CreateAndDropOnFloor(...)` | ✓ correct |
 | Delete | `BepInExPlugin.cs:78` | `DestroyWorldObject(...)` | ✓ correct |
+| ConstructToInventory | `BepInExPlugin.cs:56` | `NetcodeUtils.AddNewItemToInventory` / `RemoveItemsFromInventory` | ✓ fixed — see [section 8](#8-case-study-constructtoinventory) |
 
 ### Not a Bug
 
@@ -296,7 +296,28 @@ Mitigation used here: `InventoryAssociatedUtils.ResolveInventoryCached` (a `Reso
 
 ---
 
-## 8. Checklist for Future Mod PRs
+## 8. Case Study: ConstructToInventory
+
+Fixed in `0.2.0`. This mod's Harmony Prefix on `UiWindowConstruction.Construct` (shift-click to build directly into the backpack instead of the world) had three separate bugs, found together while auditing it against this document:
+
+1. **Didn't compile at all.** `Managers.GetManager<PlayModeHandler>()` — `PlayModeHandler` doesn't exist in the current game assembly (API drift; the current equivalent is `Managers.GetManager<GameSettingsHandler>().GetCurrentGameSettings().GetFreeCraft()`, confirmed by the same call already used in `CraftFromContainers` and `MobileCrafter`). `WorldObjectsHandler.CreateNewWorldObject(...)` was also called as if static; it's an instance method (`WorldObjectsHandler.Instance.CreateNewWorldObject(...)`). This mod could not have been built or run in its prior state.
+2. **Unsafe direct mutation** (this document's core anti-pattern): `CreateNewWorldObject` + direct `Inventory.AddItem()`, same as the other rows in the table above. Fixed by using `InventoriesHandler.Instance.AddItemToInventory(Group, Inventory, Action<bool,int>)` instead — wrapped as `NetcodeUtils.AddNewItemToInventory` (new helper, filling in one of the "future additions" the class header had flagged).
+3. **Item duplication + free items, independent of the netcode bug.** The Harmony Prefix always `return true`d, so after adding the constructed item straight to the backpack it fell through to the original `Construct()` call, which performs the normal world-placement build (consuming ingredients through the vanilla path). Net effect: shift-clicking Construct produced *two* items — one free (the inventory copy; ingredients were never consumed for it) and one paid for normally (the world-placed copy). Fixed by returning `false` from the Prefix once the inventory-build path is taken (skipping the vanilla call), and by explicitly consuming ingredients via the new `NetcodeUtils.RemoveItemsFromInventory` helper (wrapping `InventoriesHandler.Instance.RemoveItemsFromInventory(List<Group>, Inventory, ...)`) unless free-craft mode is active.
+
+Bug 3 is the same *family* as the CraftFromContainers "crafted for free" class of bug (see the CraftFromContainers commit history) — an ingredient-consumption step silently missing — but arrived at by a different mechanism (unconditional Prefix fallthrough, not a stale container snapshot).
+
+---
+
+## 9. `NetcodeUtils` Helpers Beyond Section 3's Table
+
+Two additional wrappers exist in `AedenthornUtils/NetcodeUtils.cs` beyond `RemoveItemFromInventory`/`MoveItemBetweenInventories` documented above, added for the ConstructToInventory fix and reusable by future ones:
+
+- `NetcodeUtils.AddNewItemToInventory(Group, Inventory, Action<bool,int> onComplete)` — wraps `InventoriesHandler.Instance.AddItemToInventory(Group, Inventory, ...)`. Use for "create a new item by Group directly into an inventory" (e.g. `/give`-style commands, crafting-into-inventory).
+- `NetcodeUtils.RemoveItemsFromInventory(List<Group>, Inventory, Action<bool> onComplete)` — wraps `InventoriesHandler.Instance.RemoveItemsFromInventory(List<Group>, Inventory, bool destroy=false, bool displayInformation=false, ...)`. Use for "consume a recipe's ingredient list from an inventory" (duplicate `Group` entries represent multiple units required — see section 7's sibling case study in `CraftFromContainers` for how the game encodes quantity).
+
+---
+
+## 10. Checklist for Future Mod PRs
 
 Before submitting a mod that interacts with the world, inventory, or craft system:
 
@@ -308,7 +329,7 @@ Before submitting a mod that interacts with the world, inventory, or craft syste
 
 ---
 
-## 9. References
+## 11. References
 
 - **Archived IL evidence:** [`reference/decompiled-il/`](reference/decompiled-il/) — raw IL disassembly of key `Assembly-CSharp.dll` classes (InventoriesHandler, Inventory, WorldObjectsHandler, etc.), preserved as evidence backing this document's claims. See [`reference/decompiled-il/README.md`](reference/decompiled-il/README.md) for details. Does not yet include `InventoryAssociated`/`InventoryAssociatedProxy` (section 7's evidence) — re-decompile per that README's instructions if you need to re-verify.
 

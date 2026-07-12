@@ -1,5 +1,5 @@
 $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\amd64\MSBuild.exe"
-$projects = @("QuickStore", "CraftFromContainers")
+$projects = @("QuickStore", "CraftFromContainers", "ConstructToInventory")
 $releaseDir = "$PSScriptRoot\Release"
 
 # Build projects

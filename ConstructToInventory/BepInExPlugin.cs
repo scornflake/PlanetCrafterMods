@@ -11,7 +11,7 @@ using Debug = UnityEngine.Debug;
 
 namespace ConstructToInventory
 {
-    [BepInPlugin("aedenthorn.ConstructToInventory", "Construct To Inventory", "0.1.0")]
+    [BepInPlugin("aedenthorn.ConstructToInventory", "Construct To Inventory", "0.2.0")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -43,19 +43,35 @@ namespace ConstructToInventory
         {
             static bool Prefix(GroupConstructible groupConstructible)
             {
-                if (!modEnabled.Value || !Keyboard.current.leftShiftKey.isPressed)
+                if (!modEnabled.Value || Keyboard.current == null || !Keyboard.current.leftShiftKey.isPressed)
                     return true;
                 Dbgl($"Trying to build into inventory");
 
                 PlayerMainController activePlayerController = Managers.GetManager<PlayersManager>().GetActivePlayerController();
-                if(activePlayerController.GetPlayerBackpack().GetInventory().IsFull())
+                Inventory backpackInventory = activePlayerController.GetPlayerBackpack().GetInventory();
+                if (backpackInventory.IsFull())
                     return true;
+
                 List<Group> ingredientsGroupInRecipe = groupConstructible.GetRecipe().GetIngredientsGroupInRecipe();
-                if (Managers.GetManager<PlayModeHandler>().GetFreeCraft() || activePlayerController.GetPlayerBackpack().GetInventory().ContainsItems(ingredientsGroupInRecipe))
+                bool freeCraft = Managers.GetManager<GameSettingsHandler>().GetCurrentGameSettings().GetFreeCraft();
+                if (!freeCraft && !backpackInventory.ContainsItems(ingredientsGroupInRecipe))
+                    return true;
+
+                // Skip the vanilla Construct() call entirely (return false below) — we're
+                // replacing world-placement with a direct-to-inventory build, not adding to it.
+                NetcodeUtils.AddNewItemToInventory(groupConstructible, backpackInventory, (added, _) =>
                 {
-                    Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory().AddItem(WorldObjectsHandler.CreateNewWorldObject(groupConstructible));
-                }
-                return true;
+                    if (!added)
+                    {
+                        Dbgl("Failed to add constructed item to inventory", LogLevel.Warning);
+                        return;
+                    }
+                    if (!freeCraft)
+                    {
+                        NetcodeUtils.RemoveItemsFromInventory(ingredientsGroupInRecipe, backpackInventory);
+                    }
+                });
+                return false;
             }
         }
     }

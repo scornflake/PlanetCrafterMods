@@ -16,6 +16,63 @@ using Unity.Netcode;
 public static class NetcodeUtils
 {
     /// <summary>
+    /// Safely create a new item (by Group) directly into an inventory, handling all netcode overhead.
+    ///
+    /// The operation is asynchronous via queued ClientRpc callbacks even on the server/host — do not
+    /// assume synchronous completion.
+    ///
+    /// Null-safe: if any critical precondition is null/invalid, immediately invokes onComplete(false, 0).
+    ///
+    /// Parameters:
+    ///   group: The item type to create
+    ///   inventory: Destination inventory (e.g. player backpack)
+    ///   onComplete: Callback fired with success flag and the new item's id, invoked asynchronously
+    /// </summary>
+    public static void AddNewItemToInventory(
+        SpaceCraft.Group group,
+        Inventory inventory,
+        Action<bool, int> onComplete = null)
+    {
+        var handler = InventoriesHandler.Instance;
+        if (handler == null || group == null || inventory == null)
+        {
+            onComplete?.Invoke(false, 0);
+            return;
+        }
+
+        handler.AddItemToInventory(group, inventory, onComplete);
+    }
+
+    /// <summary>
+    /// Safely remove a list of required ingredients (by Group, one entry per unit needed) from an
+    /// inventory, handling all netcode overhead.
+    ///
+    /// The operation is asynchronous via queued ClientRpc callbacks even on the server/host — do not
+    /// assume synchronous completion.
+    ///
+    /// Null-safe: if any critical precondition is null/invalid, immediately invokes onComplete(false).
+    ///
+    /// Parameters:
+    ///   groups: Required ingredients (duplicate entries represent multiple units of the same Group)
+    ///   inventory: Source inventory (e.g. player backpack)
+    ///   onComplete: Callback fired when the removal succeeds (true) or fails (false), invoked asynchronously
+    /// </summary>
+    public static void RemoveItemsFromInventory(
+        System.Collections.Generic.List<SpaceCraft.Group> groups,
+        Inventory inventory,
+        Action<bool> onComplete = null)
+    {
+        var handler = InventoriesHandler.Instance;
+        if (handler == null || groups == null || inventory == null)
+        {
+            onComplete?.Invoke(false);
+            return;
+        }
+
+        handler.RemoveItemsFromInventory(groups, inventory, false, false, onComplete);
+    }
+
+    /// <summary>
     /// Check if a multiplayer network session is currently active and listening for RPCs.
     /// Safe to call from any context (no NetworkBehaviour instance required).
     /// </summary>
