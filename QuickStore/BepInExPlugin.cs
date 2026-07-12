@@ -123,7 +123,7 @@ namespace QuickStore
 
             Dbgl($"got {backpackSnapshot.Count} items in backpack");
 
-            InformationsDisplayer informationsDisplayer = Managers.GetManager<DisplayersHandler>().GetInformationsDisplayer();
+            // InformationsDisplayer informationsDisplayer = Managers.GetManager<DisplayersHandler>().GetInformationsDisplayer();
             for (int i = 0; i < ial.Length; i++)
             {
                 var dist = Vector3.Distance(ial[i].transform.position, pos);
