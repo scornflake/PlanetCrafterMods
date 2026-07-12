@@ -1,0 +1,39 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(ls \"F:/SteamLibrary/steamapps/common/The Planet Crafter\" 2>&1 | head -30)",
+      "Read(//f/SteamLibrary/steamapps/common/The Planet Crafter/**)",
+      "Bash(which msbuild *)",
+      "Read(//c/Program Files/Microsoft Visual Studio/**)",
+      "Bash(\"/c/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe\" \"d:/Development/PlanetCrafterMods/QuickStore/QuickStore.csproj\" /p:Configuration=Debug /nologo /v:minimal)",
+      "PowerShell(& \"C:\\\\Program Files\\\\Microsoft Visual Studio\\\\2022\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\amd64\\\\MSBuild.exe\" \"d:\\\\Development\\\\PlanetCrafterMods\\\\QuickStore\\\\QuickStore.csproj\" /p:Configuration=Debug /nologo /v:minimal)",
+      "Bash(xargs grep -l \"HintPath\")",
+      "Bash(echo \"=== Check game path exists ===\" *)",
+      "Read(//f/SteamLibrary/steamapps/common/The Planet Crafter/Planet Crafter_Data/Managed/**)",
+      "Bash(ls \"F:\\\\SteamLibrary\\\\steamapps\\\\common\\\\The Planet Crafter\\\\Planet Crafter_Data\\\\Managed\" 2>/dev/null | grep -i \"netcode\\\\|assembly-csharp\\\\|steam\\\\|mirror\\\\|photon\\\\|fusion\" )",
+      "Bash(ls \"F:\\\\SteamLibrary\\\\steamapps\\\\common\\\\The Planet Crafter\\\\Planet Crafter_Data\\\\Managed\" 2>/dev/null | sort)",
+      "Bash(git check-ignore *)",
+      "Read(//f/SteamLibrary/steamapps/common/The Planet Crafter/BepInEx/plugins/**)",
+      "Read(//f/SteamLibrary/steamapps/common/The Planet Crafter/BepInEx/plugins/originals/**)",
+      "Read(//d/Development/**)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:planet-crafter.fandom.com)",
+      "Bash(ls -la \"/f/SteamLibrary/steamapps/common/The Planet Crafter/Planet Crafter_Data/Managed/\" | grep -i \"Assembly-CSharp\\\\|Netcode\\\\|Steamworks\" *)",
+      "Read(//f/SteamLibrary/steamapps/common/The Planet Crafter/Planet Crafter_Data/Managed//**)",
+      "Bash('/c/Program Files \\(x86\\)/Microsoft SDKs/Windows/v10.0A/bin/NETFX 4.8 Tools/ildasm.exe' /nobar /out=/c/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/AssemblyCSharp.il /text '/f/SteamLibrary/steamapps/common/The Planet Crafter/Planet Crafter_Data/Managed/Assembly-CSharp.dll')",
+      "Bash(echo \"EXIT: $?\")",
+      "Read(//c/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/**)",
+      "Bash(sed -n 45197,55851p /c/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/AssemblyCSharp.il)",
+      "Bash(sed -n 56213,56900p /c/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/AssemblyCSharp.il)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(OUTDIR=\"/c/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad\" *)",
+      "WebFetch(domain:www.nexusmods.com)",
+      "Bash(grep -n \"class SpaceCraft.WorldObject$\" -B1 \"C:/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/AssemblyCSharp.il\")",
+      "Bash(awk 'NR>=4700 && NR<=4800' C:/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/WorldObjectsHandler.il)",
+      "Bash(awk -F: '$1<4400')",
+      "Bash(grep -v \"^\\\\s*//\")",
+      "Bash(awk -F: -v l=64743 '$1<l{last=$0} END{print last}')"
+    ]
+  }
+}

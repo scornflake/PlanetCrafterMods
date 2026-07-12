@@ -1,0 +1,1 @@
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" "$PSScriptRoot\QuickStore\QuickStore.csproj" /p:Configuration=Debug /p:SolutionDir="$PSScriptRoot\" /nologo /v:minimal
