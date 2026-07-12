@@ -127,13 +127,17 @@ namespace QuickStore
             for (int i = 0; i < ial.Length; i++)
             {
                 var dist = Vector3.Distance(ial[i].transform.position, pos);
-                if (dist > range.Value || (!ial[i].name.StartsWith("Container1") && !ial[i].name.StartsWith("Container2") && !ial[i].name.StartsWith("Container3")) || (ial[i].name.StartsWith("Container1") && !allowStoreInChests.Value))
+                bool isChest = ial[i].name.StartsWith("Container1") || ial[i].name.StartsWith("Container2") || ial[i].name.StartsWith("Container3");
+                bool isTooFar = dist > range.Value;
+                bool isChestButNotAllowed = isChest && !allowStoreInChests.Value;
+
+                if (isTooFar || !isChest || isChestButNotAllowed)
                 {
                     if (allowStoreInChests.Value)
                     {
                         Dbgl($"skipping inventory {ial[i].name} because it is too far away or not a chest or not allowed to store in chests");
                     }
-                    if (!ial[i].name.StartsWith("Container1") && !ial[i].name.StartsWith("Container2") && !ial[i].name.StartsWith("Container3"))
+                    if (!isChest)
                     {
                         Dbgl($"skipping inventory {ial[i].name} because it is not a chest");
                     }
