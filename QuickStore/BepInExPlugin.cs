@@ -13,7 +13,7 @@ using UnityEngine.InputSystem;
 
 namespace QuickStore
 {
-    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.4")]
+    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.5")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -87,7 +87,7 @@ namespace QuickStore
         {
             List<string> allow = allowList.Value.Split(',').ToList();
             List<string> disallow = disallowList.Value.Split(',').ToList();
-            InventoryAssociated[] ial = FindObjectsByType<InventoryAssociated>(FindObjectsInactive.Exclude, FindObjectsSortMode.InstanceID);
+            InventoryAssociated[] ial = FindObjectsByType<InventoryAssociated>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
             Vector3 pos = Managers.GetManager<PlayersManager>().GetActivePlayerController().transform.position;
 
             Dbgl($"got {ial.Length} inventories");
@@ -174,13 +174,20 @@ namespace QuickStore
 
                 Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m, capacity: {remainingCapacity}");
 
-                if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && !ial[i].GetComponent<WorldObjectText>().GetText().ToLower().Contains($"{requireNameFlagtoStore.Value}"))
+                var objectText = ial[i].GetComponent<WorldObjectText>();
+                if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && (objectText == null || !objectText.GetText().ToLower().Contains($"{requireNameFlagtoStore.Value}")))
                 {
                     Dbgl($"skipping inventory {ial[i].name} because it does not contain the required name flag");
                     continue;
                 }
 
-                var containerName = ial[i].GetComponent<WorldObjectText>()?.GetText().ToLower();
+                var containerName = objectText?.GetText().ToLower();
+
+                if ((storeIfContainerNameExact.Value || storeIfContainerNameContains.Value) && containerName == null)
+                {
+                    Dbgl($"skipping inventory {ial[i].name} because its name could not be retrieved");
+                    continue;
+                }
 
                 for (int j = backpackSnapshot.Count - 1; j >= 0; j--)
                 {
