@@ -14,7 +14,7 @@ using Debug = UnityEngine.Debug;
 
 namespace CraftFromContainers
 {
-    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.3")]
+    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.4")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -136,7 +136,7 @@ namespace CraftFromContainers
                         break;
 
                     var dist = Vector3.Distance(candidate.Transform.position, pos);
-                    if (candidate.Name.Contains("Golden Container") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
+                    if (candidate.Name.Contains("GoldenContainer") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
                         continue;
 
                     // Cached resolution: not strictly required here (this Prefix only fires an
@@ -247,7 +247,7 @@ namespace CraftFromContainers
                         break;
 
                     var dist = Vector3.Distance(candidate.Transform.position, pos);
-                    if (candidate.Name.Contains("Golden Container") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
+                    if (candidate.Name.Contains("GoldenContainer") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
                     {
                         //Dbgl($"can't use {candidate.Name}; pfc {pullFromChests.Value}, dist {dist}/{range.Value} ");
                         continue;
