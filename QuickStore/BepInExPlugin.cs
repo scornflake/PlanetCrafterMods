@@ -179,13 +179,13 @@ namespace QuickStore
                 Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m, capacity: {remainingCapacity}");
 
                 var objectText = ial[i].GetComponent<WorldObjectText>();
-                if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && (objectText == null || !objectText.GetText().ToLower().Contains($"{requireNameFlagtoStore.Value}")))
+                var containerName = TryGetContainerName(objectText);
+
+                if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && (containerName == null || !containerName.Contains($"{requireNameFlagtoStore.Value}")))
                 {
                     Dbgl($"skipping inventory {ial[i].name} because it does not contain the required name flag");
                     continue;
                 }
-
-                var containerName = objectText?.GetText().ToLower();
 
                 if ((storeIfContainerNameExact.Value || storeIfContainerNameContains.Value) && containerName == null)
                 {
@@ -267,6 +267,27 @@ namespace QuickStore
                     Dbgl($"stored all items");
                     break;
                 }
+            }
+        }
+
+        // WorldObjectText.GetText() reads through a NetworkVariable-backed proxy that is only
+        // populated in that component's own Start(). A component discovered via
+        // FindObjectsInactive.Include may not have run Start() yet, in which case GetText()
+        // throws NullReferenceException. Treat that the same as "name unavailable" rather than
+        // letting it abort the rest of the scan.
+        private static string TryGetContainerName(WorldObjectText objectText)
+        {
+            if (objectText == null)
+            {
+                return null;
+            }
+            try
+            {
+                return objectText.GetText().ToLower();
+            }
+            catch (NullReferenceException)
+            {
+                return null;
             }
         }
     }
