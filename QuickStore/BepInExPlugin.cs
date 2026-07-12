@@ -13,7 +13,7 @@ using UnityEngine.InputSystem;
 
 namespace QuickStore
 {
-    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.2")]
+    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.4")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -36,7 +36,9 @@ namespace QuickStore
         public static void Dbgl(string str = "", LogLevel logLevel = LogLevel.Debug)
         {
             if (isDebug.Value)
+            {
                 context.Logger.Log(logLevel, str);
+            }
         }
         private void Awake()
         {
@@ -55,14 +57,17 @@ namespace QuickStore
 
 
             if (!storeKey.Value.Contains("<"))
+            {
                 storeKey.Value = "<Keyboard>/" + storeKey.Value;
+            }
 
             action = new InputAction(binding: storeKey.Value);
             action.Enable();
 
             Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), null);
 
-            Dbgl("Plugin awake");
+            Dbgl("Right - LETS BEGIN");
+            Dbgl("Plugin awake. storeKey: " + storeKey.Value);
 
         }
         [HarmonyPatch(typeof(PlayerInputDispatcher), "Update")]
@@ -87,6 +92,22 @@ namespace QuickStore
 
             Dbgl($"got {ial.Length} inventories");
 
+            if (isDebug.Value)
+            {
+                InventoryAssociated[] ialAll = FindObjectsByType<InventoryAssociated>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+                Dbgl($"[diag] got {ialAll.Length} inventories total (active+inactive) vs {ial.Length} active-only");
+
+                var containerMatches = ialAll.Where(x =>
+                    x.name.StartsWith("Container1") || x.name.StartsWith("Container2") || x.name.StartsWith("Container3")).ToList();
+                Dbgl($"[diag] found {containerMatches.Count} Container1/2/3-named objects (active+inactive)");
+                foreach (var c in containerMatches)
+                {
+                    Dbgl($"[diag] {c.name} activeInHierarchy={c.gameObject.activeInHierarchy} activeSelf={c.gameObject.activeSelf} pos={c.transform.position}");
+                }
+
+                Dbgl($"[diag] netcode role: isHost={NetcodeUtils.IsHost()} isRemoteClientOnly={NetcodeUtils.IsRemoteClientOnly()}");
+            }
+
             // Snapshot the backpack's current contents upfront (not live collection).
             // We use snapshots because the safe InventoriesHandler APIs are asynchronous:
             // the result callback is deferred via a queued ClientRpc, even on the host,
@@ -107,13 +128,37 @@ namespace QuickStore
             {
                 var dist = Vector3.Distance(ial[i].transform.position, pos);
                 if (dist > range.Value || (!ial[i].name.StartsWith("Container1") && !ial[i].name.StartsWith("Container2") && !ial[i].name.StartsWith("Container3")) || (ial[i].name.StartsWith("Container1") && !allowStoreInChests.Value))
+                {
+                    if (allowStoreInChests.Value)
+                    {
+                        Dbgl($"skipping inventory {ial[i].name} because it is too far away or not a chest or not allowed to store in chests");
+                    }
+                    if (!ial[i].name.StartsWith("Container1") && !ial[i].name.StartsWith("Container2") && !ial[i].name.StartsWith("Container3"))
+                    {
+                        Dbgl($"skipping inventory {ial[i].name} because it is not a chest");
+                    }
                     continue;
+                }
 
+                if(isDebug.Value) {
+                    Dbgl($"checking inventory: {ial[i].name}");
+                }
                 int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
                 var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
 
                 if (inventory is null || inventory == backpackInventory)
+                {
+                    if (inventory is null)
+                    {
+                        Dbgl($"skipping inventory {ial[i].name} because it is null");
+                    }
+                    if (inventory == backpackInventory)
+                    {
+                        Dbgl($"skipping inventory {ial[i].name} because it is the backpack");
+                    }
+
                     continue;
+                }
 
                 // Snapshot this container's current contents (for storeIfAlreadyContains filter).
                 var objList = inventory.GetInsideWorldObjects().ToList();
@@ -122,12 +167,18 @@ namespace QuickStore
                 // This is an estimate for loop control only — the server RPC remains authoritative.
                 int remainingCapacity = inventory.GetSize() - objList.Count;
                 if (remainingCapacity <= 0)
+                {
+                    Dbgl($"skipping inventory {ial[i].name} because it is at capacity");
                     continue;
+                }
 
                 Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m, capacity: {remainingCapacity}");
 
                 if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && !ial[i].GetComponent<WorldObjectText>().GetText().ToLower().Contains($"{requireNameFlagtoStore.Value}"))
+                {
+                    Dbgl($"skipping inventory {ial[i].name} because it does not contain the required name flag");
                     continue;
+                }
 
                 var containerName = ial[i].GetComponent<WorldObjectText>()?.GetText().ToLower();
 
@@ -135,21 +186,33 @@ namespace QuickStore
                 {
                     // Skip if this item is already claimed for a different container.
                     if (claimedItems.Contains(backpackSnapshot[j]))
+                    {
+                        Dbgl($"skipping item {backpackSnapshot[j].GetGroup().GetId()} because it is already claimed");
                         continue;
+                    }
 
                     // Stop if container is now at capacity (via our optimistic local tracking).
                     if (remainingCapacity <= 0)
+                    {
+                        Dbgl($"skipping inventory {ial[i].name} because it is at capacity");
                         break;
+                    }
 
                     if (allowList.Value.Length > 0)
                     {
                         if (!allow.Contains(backpackSnapshot[j].GetGroup().GetId()))
+                        {
+                            Dbgl($"skipping item {backpackSnapshot[j].GetGroup().GetId()} because it is not in the allow list");
                             continue;
+                        }
                     }
                     else if (disallowList.Value.Length > 0)
                     {
                         if (disallow.Contains(backpackSnapshot[j].GetGroup().GetId()))
+                        {
+                            Dbgl($"skipping item {backpackSnapshot[j].GetGroup().GetId()} because it is in the disallow list");
                             continue;
+                        }
                     }
 
                     var itemName = Readable.GetGroupName(backpackSnapshot[j].GetGroup()).ToLower();
@@ -158,7 +221,10 @@ namespace QuickStore
                         (!storeIfContainerNameContains.Value || !containerName.Contains(itemName)) &&
                         (!storeIfAlreadyContains.Value || !objList.Exists(o => o.GetGroup() == backpackSnapshot[j].GetGroup()))
                         )
-                        continue;
+                        {
+                            Dbgl($"skipping item {backpackSnapshot[j].GetGroup().GetId()} because it does not pass the container name filters");
+                            continue;
+                        }
 
                     // Item passes all filters. Claim it and queue the move.
                     // Capture needed locals inside the loop body so each iteration's closure is independent.
