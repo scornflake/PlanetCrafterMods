@@ -13,7 +13,7 @@ using UnityEngine.InputSystem;
 
 namespace QuickStore
 {
-    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.7")]
+    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.8")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -90,42 +90,25 @@ namespace QuickStore
         {
             List<string> allow = allowList.Value.Split(',').ToList();
             List<string> disallow = disallowList.Value.Split(',').ToList();
-            InventoryAssociated[] ial = FindObjectsByType<InventoryAssociated>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
             Vector3 pos = Managers.GetManager<PlayersManager>().GetActivePlayerController().transform.position;
-
-            Dbgl($"got {ial.Length} inventories");
 
             // On remote (non-host) clients, Container1/2/3 chests/lockers are represented via
             // InventoryAssociatedProxy instead of an InventoryAssociated component directly on
             // the container's own GameObject — confirmed by decompiling Assembly-CSharp.dll and
             // by remote diagnostic logs (0 InventoryAssociated matches, 53 raw-name matches, all
-            // with hasProxyInParent=True). Find those separately so remote players' storage isn't
-            // silently skipped. Only Container-named objects are searched here (not every
-            // Transform in the scene) to keep this bounded and targeted at the diagnosed gap.
-            var directAssociatedGameObjects = new HashSet<GameObject>(ial.Select(x => x.gameObject));
-            Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
-            var proxyOnlyChests = allTransforms.Where(t =>
-                IsChestName(t.name) && !directAssociatedGameObjects.Contains(t.gameObject)).ToList();
+            // with hasProxyInParent=True). InventoryAssociatedUtils.FindCandidates finds both
+            // host-direct and remote-proxy-only chests uniformly; ResolveInventory below resolves
+            // whichever kind each one turns out to be (synchronously for the host case,
+            // asynchronously via a ServerRpc round trip for the remote case).
+            Action<string> logDiag = isDebug.Value ? (Action<string>)(msg => Dbgl($"[diag] {msg}")) : null;
+            var candidates = InventoryAssociatedUtils.FindCandidates(IsChestName, logDiag);
 
             if (isDebug.Value)
             {
-                var containerMatches = ial.Where(x => IsChestName(x.name)).ToList();
-                Dbgl($"[diag] found {containerMatches.Count} Container1/2/3-named objects with InventoryAssociated (active+inactive)");
-                foreach (var c in containerMatches)
-                {
-                    Dbgl($"[diag] {c.name} activeInHierarchy={c.gameObject.activeInHierarchy} activeSelf={c.gameObject.activeSelf} pos={c.transform.position}");
-                }
-
-                Dbgl($"[diag] found {proxyOnlyChests.Count} Container1/2/3-named GameObjects reachable only via InventoryAssociatedProxy");
-                foreach (var t in proxyOnlyChests)
-                {
-                    var proxy = t.GetComponentInParent<InventoryAssociatedProxy>();
-                    var netObj = t.GetComponentInParent<Unity.Netcode.NetworkObject>();
-                    Dbgl($"[diag] proxy {t.name} activeInHierarchy={t.gameObject.activeInHierarchy} hasProxyInParent={proxy != null} hasNetworkObjectInParent={netObj != null} pos={t.position}");
-                }
-
                 Dbgl($"[diag] netcode role: isHost={NetcodeUtils.IsHost()} isRemoteClientOnly={NetcodeUtils.IsRemoteClientOnly()}");
             }
+
+            Dbgl($"got {candidates.Count} candidate containers");
 
             // Snapshot the backpack's current contents upfront (not live collection).
             // We use snapshots because the safe InventoriesHandler APIs are asynchronous:
@@ -266,75 +249,33 @@ namespace QuickStore
                 }
             }
 
-            // InformationsDisplayer informationsDisplayer = Managers.GetManager<DisplayersHandler>().GetInformationsDisplayer();
-            for (int i = 0; i < ial.Length; i++)
-            {
-                var dist = Vector3.Distance(ial[i].transform.position, pos);
-                bool isChest = IsChestName(ial[i].name);
-                bool isTooFar = dist > range.Value;
-                bool isChestButNotAllowed = isChest && !allowStoreInChests.Value;
-
-                if (isTooFar || !isChest || isChestButNotAllowed)
-                {
-                    if (allowStoreInChests.Value)
-                    {
-                        Dbgl($"skipping inventory {ial[i].name} because it is too far away or not a chest or not allowed to store in chests");
-                    }
-                    if (!isChest)
-                    {
-                        Dbgl($"skipping inventory {ial[i].name} because it is not a chest");
-                    }
-                    continue;
-                }
-
-                if(isDebug.Value) {
-                    Dbgl($"checking inventory: {ial[i].name}");
-                }
-                int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
-                var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
-                var objectText = ial[i].GetComponent<WorldObjectText>();
-
-                ProcessContainer(ial[i].name, ial[i].transform.position, dist, inventory, objectText);
-
-                // Stop scanning containers once all backpack items have been claimed by some container.
-                if (unclaimedCount == 0)
-                {
-                    break;
-                }
-            }
-
-            // Second pass: chests only reachable via InventoryAssociatedProxy (remote clients).
-            // Resolution is async (may require a ServerRpc round-trip for the inventory ID), so
-            // these are kicked off after the synchronous pass above rather than interleaved with it.
-            foreach (var t in proxyOnlyChests)
+            // Candidates were already filtered to Container1/2/3-named objects by IsChestName above,
+            // so no further "is this a chest" check is needed here — just distance/allow-list, then
+            // hand off to ResolveInventory, which resolves host-direct candidates synchronously and
+            // remote-proxy candidates asynchronously (potentially after a ServerRpc round-trip).
+            foreach (var candidate in candidates)
             {
                 if (unclaimedCount == 0)
                 {
                     break;
                 }
 
-                var dist = Vector3.Distance(t.position, pos);
-                bool isTooFar = dist > range.Value;
-                if (isTooFar || !allowStoreInChests.Value)
+                var dist = Vector3.Distance(candidate.Transform.position, pos);
+                if (dist > range.Value || !allowStoreInChests.Value)
                 {
-                    Dbgl($"skipping inventory {t.name} because it is too far away or not allowed to store in chests");
+                    Dbgl($"skipping inventory {candidate.Name} because it is too far away or not allowed to store in chests");
                     continue;
                 }
 
-                var proxy = t.GetComponentInParent<InventoryAssociatedProxy>();
-                if (proxy == null)
-                {
-                    continue;
-                }
+                var containerName = candidate.Name;
+                var containerPos = candidate.Transform.position;
+                var objectText = candidate.Transform.GetComponent<WorldObjectText>();
 
-                var name = t.name;
-                var containerPos = t.position;
-                var objectText = t.GetComponent<WorldObjectText>();
+                Dbgl($"checking {(candidate.IsProxyBacked ? "proxy-backed " : "")}inventory: {containerName}");
 
-                Dbgl($"checking proxy-backed inventory: {name}");
-                proxy.GetInventory((inventory, worldObject) =>
+                InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
                 {
-                    ProcessContainer(name, containerPos, dist, inventory, objectText);
+                    ProcessContainer(containerName, containerPos, dist, inventory, objectText);
                 });
             }
         }
