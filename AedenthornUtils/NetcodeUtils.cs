@@ -59,6 +59,34 @@ public static class NetcodeUtils
     }
 
     /// <summary>
+    /// Safely remove a WorldObject from an inventory, handling all netcode overhead.
+    ///
+    /// The operation is asynchronous via queued ClientRpc callbacks even on the server/host — do not
+    /// assume synchronous completion.
+    ///
+    /// Null-safe: if any critical precondition is null/invalid, immediately invokes onComplete(false).
+    ///
+    /// Parameters:
+    ///   worldObject: The item to remove (must exist and belong to inventory at call time)
+    ///   inventory: Source inventory (e.g. a container)
+    ///   onComplete: Callback fired when the remove succeeds (true) or fails (false), invoked asynchronously
+    /// </summary>
+    public static void RemoveItemFromInventory(
+        WorldObject worldObject,
+        Inventory inventory,
+        Action<bool> onComplete = null)
+    {
+        var handler = InventoriesHandler.Instance;
+        if (handler == null || worldObject == null || inventory == null)
+        {
+            onComplete?.Invoke(false);
+            return;
+        }
+
+        handler.RemoveItemFromInventory(worldObject, inventory, false, onComplete);
+    }
+
+    /// <summary>
     /// Safely move a WorldObject from one inventory to another, handling all netcode overhead.
     ///
     /// This method chains InventoriesHandler's safe wrappers: first AddItemToInventory on the destination,

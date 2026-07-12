@@ -41,7 +41,9 @@
       "Bash(cp \"C:\\\\Users\\\\neil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Development-PlanetCrafterMods\\\\64fc50b8-f681-41bc-a7c4-ff0d31b577f8\\\\scratchpad\\\\WorldObjectsHandler.il\" .)",
       "Bash(dotnet build *)",
       "PowerShell(d:\\\\Development\\\\PlanetCrafterMods\\\\cleanup-build-artifacts.ps1)",
-      "PowerShell(Get-ChildItem -Path \"d:\\\\Development\\\\PlanetCrafterMods\" -Recurse -Filter \"QuickStore.dll\" -o Depth 5)"
+      "PowerShell(Get-ChildItem -Path \"d:\\\\Development\\\\PlanetCrafterMods\" -Recurse -Filter \"QuickStore.dll\" -o Depth 5)",
+      "PowerShell(Rename-Item \"d:\\\\Development\\\\PlanetCrafterMods\\\\build-quickstore.ps1\" \"build-fixed.ps1\")",
+      "PowerShell(& d:\\\\Development\\\\PlanetCrafterMods\\\\build-fixed.ps1)"
     ]
   }
 }

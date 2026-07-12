@@ -6,6 +6,7 @@ using SpaceCraft;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -122,7 +123,7 @@ namespace CraftFromContainers
                     var dist = Vector3.Distance(ial[i].transform.position, pos);
                     if (ial[i].name.Contains("Golden Container") || (!pullFromChests.Value && ial[i].name.Contains("Container1")) || dist > range.Value)
                         continue;
-                    
+
                     int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
                     var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
 
@@ -130,6 +131,10 @@ namespace CraftFromContainers
                         continue;
 
                     Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m");
+
+                    // Snapshot the container's inventory to avoid iterating a live/mutating collection.
+                    List<WorldObject> containerSnapshot = new List<WorldObject>(inventory.GetInsideWorldObjects());
+
                     skip = true;
                     List<bool> hasItems = inventory.ItemsContainsStatus(groupsCopy);
                     skip = false;
@@ -147,14 +152,21 @@ namespace CraftFromContainers
                     }
                     foreach (Group group in thisGroups)
                     {
-                        for (int j = inventory.GetInsideWorldObjects().Count - 1; j > -1; j--)
+                        for (int j = containerSnapshot.Count - 1; j > -1; j--)
                         {
-                            Dbgl($"\thas {inventory.GetInsideWorldObjects()[j].GetGroup().GetId()}");
+                            Dbgl($"\thas {containerSnapshot[j].GetGroup().GetId()}");
 
-                            if (inventory.GetInsideWorldObjects()[j].GetGroup() == group)
+                            if (containerSnapshot[j].GetGroup() == group)
                             {
-                                inventory.RemoveItem(inventory.GetInsideWorldObjects()[j]);
-                                Dbgl($"\tremoved {group.GetId()}");
+                                var itemToRemove = containerSnapshot[j];
+                                var groupName = Readable.GetGroupName(itemToRemove.GetGroup());
+                                Dbgl($"\tqueuing removal of {groupName}");
+
+                                // Use the safe async wrapper. The result callback is deferred via queued ClientRpc.
+                                NetcodeUtils.RemoveItemFromInventory(itemToRemove, inventory, success =>
+                                {
+                                    Dbgl($"Removal of {groupName} from container: {(success ? "succeeded" : "failed")}");
+                                });
                                 break;
                             }
                         }
