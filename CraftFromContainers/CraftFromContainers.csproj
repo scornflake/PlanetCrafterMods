@@ -7,5 +7,6 @@
   <ItemGroup>
     <Compile Include="..\AedenthornUtils\AedenthornUtils.cs" Link="AedenthornUtils.cs" />
     <Compile Include="..\AedenthornUtils\NetcodeUtils.cs" Link="NetcodeUtils.cs" />
+    <Compile Include="..\AedenthornUtils\InventoryAssociatedUtils.cs" Link="InventoryAssociatedUtils.cs" />
   </ItemGroup>
 </Project>

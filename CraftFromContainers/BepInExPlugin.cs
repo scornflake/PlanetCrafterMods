@@ -14,7 +14,7 @@ using Debug = UnityEngine.Debug;
 
 namespace CraftFromContainers
 {
-    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.1")]
+    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.2")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -112,70 +112,85 @@ namespace CraftFromContainers
                         Dbgl($"{groups[j].GetId()}");
                     }
                 }
-                InventoryAssociated[] ial = FindObjectsByType<InventoryAssociated>(FindObjectsSortMode.None);
                 Vector3 pos = Managers.GetManager<PlayersManager>().GetActivePlayerController().transform.position;
 
-                Dbgl($"got {ial.Length} inventories");
+                // On remote (non-host) clients, a container's Inventory is only reachable via
+                // InventoryAssociatedProxy rather than an InventoryAssociated component directly on
+                // its own GameObject (confirmed by decompiling Assembly-CSharp.dll and by remote
+                // diagnostic logs — see InventoryAssociatedUtils). FindCandidates finds both
+                // host-direct and remote-proxy-only containers uniformly; ResolveInventory below
+                // resolves whichever kind each one turns out to be. The name filter here accepts
+                // everything, matching the original unrestricted FindObjectsByType<InventoryAssociated>
+                // scan — all name-based exclusion (Golden Container / Container1 / range) happens
+                // per-candidate below, exactly as before.
+                Action<string> logDiag = isDebug.Value ? (Action<string>)(msg => Dbgl($"[diag] {msg}")) : null;
+                var candidates = InventoryAssociatedUtils.FindCandidates(_ => true, logDiag);
 
-                for (int i = 0; i < ial.Length; i++)
+                Dbgl($"got {candidates.Count} inventories");
+
+                bool allFound = false;
+
+                foreach (var candidate in candidates)
                 {
+                    if (allFound)
+                        break;
 
-                    var dist = Vector3.Distance(ial[i].transform.position, pos);
-                    if (ial[i].name.Contains("Golden Container") || (!pullFromChests.Value && ial[i].name.Contains("Container1")) || dist > range.Value)
+                    var dist = Vector3.Distance(candidate.Transform.position, pos);
+                    if (candidate.Name.Contains("Golden Container") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
                         continue;
 
-                    int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
-                    var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
-
-                    if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
-                        continue;
-
-                    Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m");
-
-                    // Snapshot the container's inventory to avoid iterating a live/mutating collection.
-                    List<WorldObject> containerSnapshot = new List<WorldObject>(inventory.GetInsideWorldObjects());
-
-                    skip = true;
-                    List<bool> hasItems = inventory.ItemsContainsStatus(groupsCopy);
-                    skip = false;
-                    List<Group> thisGroups = new List<Group>();
-                    for (int j = 0; j < hasStatus.Count; j++)
+                    InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
                     {
-                        if (!hasStatus[j] && groupsCopy.Contains(groups[j]) && hasItems[groupsCopy.IndexOf(groups[j])])
-                        {
-                            Dbgl($"\tFound item {groups[j].GetId()} in {ial[i].name}");
-                            hasStatus[j] = true;
-                            thisGroups.Add(groups[j]);
-                            hasItems.RemoveAt(groupsCopy.IndexOf(groups[j]));
-                            groupsCopy.Remove(groups[j]);
-                        }
-                    }
-                    foreach (Group group in thisGroups)
-                    {
-                        for (int j = containerSnapshot.Count - 1; j > -1; j--)
-                        {
-                            Dbgl($"\thas {containerSnapshot[j].GetGroup().GetId()}");
+                        if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
+                            return;
 
-                            if (containerSnapshot[j].GetGroup() == group)
+                        Dbgl($"checking close inventory {candidate.Name}: {candidate.Transform.position}, {pos}: {dist}m");
+
+                        // Snapshot the container's inventory to avoid iterating a live/mutating collection.
+                        List<WorldObject> containerSnapshot = new List<WorldObject>(inventory.GetInsideWorldObjects());
+
+                        skip = true;
+                        List<bool> hasItems = inventory.ItemsContainsStatus(groupsCopy);
+                        skip = false;
+                        List<Group> thisGroups = new List<Group>();
+                        for (int j = 0; j < hasStatus.Count; j++)
+                        {
+                            if (!hasStatus[j] && groupsCopy.Contains(groups[j]) && hasItems[groupsCopy.IndexOf(groups[j])])
                             {
-                                var itemToRemove = containerSnapshot[j];
-                                var groupName = Readable.GetGroupName(itemToRemove.GetGroup());
-                                Dbgl($"\tqueuing removal of {groupName}");
-
-                                // Use the safe async wrapper. The result callback is deferred via queued ClientRpc.
-                                NetcodeUtils.RemoveItemFromInventory(itemToRemove, inventory, success =>
-                                {
-                                    Dbgl($"Removal of {groupName} from container: {(success ? "succeeded" : "failed")}");
-                                });
-                                break;
+                                Dbgl($"\tFound item {groups[j].GetId()} in {candidate.Name}");
+                                hasStatus[j] = true;
+                                thisGroups.Add(groups[j]);
+                                hasItems.RemoveAt(groupsCopy.IndexOf(groups[j]));
+                                groupsCopy.Remove(groups[j]);
                             }
                         }
-                    }
-                    if (!hasStatus.Contains(false))
-                    {
-                        Dbgl($"removed all missing items");
-                        return;
-                    }
+                        foreach (Group group in thisGroups)
+                        {
+                            for (int j = containerSnapshot.Count - 1; j > -1; j--)
+                            {
+                                Dbgl($"\thas {containerSnapshot[j].GetGroup().GetId()}");
+
+                                if (containerSnapshot[j].GetGroup() == group)
+                                {
+                                    var itemToRemove = containerSnapshot[j];
+                                    var groupName = Readable.GetGroupName(itemToRemove.GetGroup());
+                                    Dbgl($"\tqueuing removal of {groupName}");
+
+                                    // Use the safe async wrapper. The result callback is deferred via queued ClientRpc.
+                                    NetcodeUtils.RemoveItemFromInventory(itemToRemove, inventory, success =>
+                                    {
+                                        Dbgl($"Removal of {groupName} from container: {(success ? "succeeded" : "failed")}");
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                        if (!hasStatus.Contains(false))
+                        {
+                            Dbgl($"removed all missing items");
+                            allFound = true;
+                        }
+                    });
                 }
             }
         }
@@ -200,45 +215,56 @@ namespace CraftFromContainers
                 }
 
 
-                InventoryAssociated[] ial = FindObjectsByType<InventoryAssociated>(FindObjectsSortMode.None);
                 Vector3 pos = Managers.GetManager<PlayersManager>().GetActivePlayerController().transform.position;
 
-                //Dbgl($"got {ial.Length} inventories");
+                //Dbgl($"got inventories");
 
-                for (int i = 0; i < ial.Length; i++)
+                // Same InventoryAssociatedProxy fix as in Inventory_RemoveItems_Patch above: on
+                // remote (non-host) clients, containers are only reachable via the proxy, not a
+                // direct InventoryAssociated. The name filter accepts everything (matching the
+                // original unrestricted scan); exclusion by name/range happens per-candidate below.
+                Action<string> logDiag = isDebug.Value ? (Action<string>)(msg => Dbgl($"[diag] {msg}")) : null;
+                var candidates = InventoryAssociatedUtils.FindCandidates(_ => true, logDiag);
+
+                bool allFound = false;
+
+                foreach (var candidate in candidates)
                 {
-                    var dist = Vector3.Distance(ial[i].transform.position, pos);
-                    if (ial[i].name.Contains("Golden Container") || (!pullFromChests.Value && ial[i].name.Contains("Container1")) || dist > range.Value)
+                    if (allFound)
+                        break;
+
+                    var dist = Vector3.Distance(candidate.Transform.position, pos);
+                    if (candidate.Name.Contains("Golden Container") || (!pullFromChests.Value && candidate.Name.Contains("Container1")) || dist > range.Value)
                     {
-                        //Dbgl($"can't use {ial[i].name}; pfc {pullFromChests.Value}, dist {dist}/{range.Value} ");
+                        //Dbgl($"can't use {candidate.Name}; pfc {pullFromChests.Value}, dist {dist}/{range.Value} ");
                         continue;
                     }
-                    int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
-                    var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
 
-                    if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
-                        continue;
-
-                    //Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m");
-                    skip = true;
-                    List<bool> hasItems = inventory.ItemsContainsStatus(groupsCopy);
-                    skip = false;
-                    for (int j = 0; j < __result.Count; j++)
+                    InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
                     {
-                        if (!__result[j] && groupsCopy.Contains(groups[j]) && hasItems[groupsCopy.IndexOf(groups[j])])
+                        if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory())
+                            return;
+
+                        //Dbgl($"checking close inventory {candidate.Name}: {candidate.Transform.position}, {pos}: {dist}m");
+                        skip = true;
+                        List<bool> hasItems = inventory.ItemsContainsStatus(groupsCopy);
+                        skip = false;
+                        for (int j = 0; j < __result.Count; j++)
                         {
-                            //Dbgl($"Found item {_groups[j].GetId()} in {ial[i].name}");
-                            __result[j] = true;
-                            hasItems.RemoveAt(groupsCopy.IndexOf(groups[j]));
-                            groupsCopy.Remove(groups[j]);
+                            if (!__result[j] && groupsCopy.Contains(groups[j]) && hasItems[groupsCopy.IndexOf(groups[j])])
+                            {
+                                //Dbgl($"Found item {_groups[j].GetId()} in {candidate.Name}");
+                                __result[j] = true;
+                                hasItems.RemoveAt(groupsCopy.IndexOf(groups[j]));
+                                groupsCopy.Remove(groups[j]);
+                            }
                         }
-                    }
-                    if (!__result.Contains(false))
-                    {
-                        //Dbgl($"found all items");
-                        return;
-                    }
-
+                        if (!__result.Contains(false))
+                        {
+                            //Dbgl($"found all items");
+                            allFound = true;
+                        }
+                    });
                 }
             }
         }
