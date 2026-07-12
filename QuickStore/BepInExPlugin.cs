@@ -13,7 +13,7 @@ using UnityEngine.InputSystem;
 
 namespace QuickStore
 {
-    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.5")]
+    [BepInPlugin("aedenthorn.QuickStore", "Quick Store", "0.7.6")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -99,10 +99,26 @@ namespace QuickStore
 
                 var containerMatches = ialAll.Where(x =>
                     x.name.StartsWith("Container1") || x.name.StartsWith("Container2") || x.name.StartsWith("Container3")).ToList();
-                Dbgl($"[diag] found {containerMatches.Count} Container1/2/3-named objects (active+inactive)");
+                Dbgl($"[diag] found {containerMatches.Count} Container1/2/3-named objects with InventoryAssociated (active+inactive)");
                 foreach (var c in containerMatches)
                 {
                     Dbgl($"[diag] {c.name} activeInHierarchy={c.gameObject.activeInHierarchy} activeSelf={c.gameObject.activeSelf} pos={c.transform.position}");
+                }
+
+                // Separate from the InventoryAssociated-component scan above: search raw scene
+                // Transforms by name so we can tell "GameObject doesn't exist for this client"
+                // apart from "GameObject exists but its InventoryAssociated component/proxy
+                // didn't come along" (e.g. a network-spawn discrepancy between host and remote).
+                Transform[] allTransforms = FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                var rawContainerMatches = allTransforms.Where(t =>
+                    t.name.StartsWith("Container1") || t.name.StartsWith("Container2") || t.name.StartsWith("Container3")).ToList();
+                Dbgl($"[diag] found {rawContainerMatches.Count} Container1/2/3-named GameObjects by raw name scan (any component)");
+                foreach (var t in rawContainerMatches)
+                {
+                    var ia = t.GetComponent<InventoryAssociated>();
+                    var proxy = t.GetComponentInParent<InventoryAssociatedProxy>();
+                    var netObj = t.GetComponentInParent<Unity.Netcode.NetworkObject>();
+                    Dbgl($"[diag] raw {t.name} activeInHierarchy={t.gameObject.activeInHierarchy} hasInventoryAssociated={ia != null} hasProxyInParent={proxy != null} hasNetworkObjectInParent={netObj != null} pos={t.position}");
                 }
 
                 Dbgl($"[diag] netcode role: isHost={NetcodeUtils.IsHost()} isRemoteClientOnly={NetcodeUtils.IsRemoteClientOnly()}");
