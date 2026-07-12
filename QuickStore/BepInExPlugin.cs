@@ -3,6 +3,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using SpaceCraft;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -86,63 +87,108 @@ namespace QuickStore
 
             Dbgl($"got {ial.Length} inventories");
 
-            ReadOnlyCollection<WorldObject> objects = Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory().GetInsideWorldObjects();
+            // Snapshot the backpack's current contents upfront (not live collection).
+            // We use snapshots because the safe InventoriesHandler APIs are asynchronous:
+            // the result callback is deferred via a queued ClientRpc, even on the host,
+            // so we cannot rely on synchronous mutation to drive loop control.
+            List<WorldObject> backpackSnapshot = new List<WorldObject>(
+                Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory().GetInsideWorldObjects());
+            Inventory backpackInventory = Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory();
+
+            // Track items already claimed/queued for a move this call, so the same item
+            // is never assigned to two different containers within one hotkey press.
+            HashSet<WorldObject> claimedItems = new HashSet<WorldObject>();
+            int unclaimedCount = backpackSnapshot.Count;
+
+            Dbgl($"got {backpackSnapshot.Count} items in backpack");
 
             InformationsDisplayer informationsDisplayer = Managers.GetManager<DisplayersHandler>().GetInformationsDisplayer();
             for (int i = 0; i < ial.Length; i++)
             {
-
                 var dist = Vector3.Distance(ial[i].transform.position, pos);
                 if (dist > range.Value || (!ial[i].name.StartsWith("Container1") && !ial[i].name.StartsWith("Container2") && !ial[i].name.StartsWith("Container3")) || (ial[i].name.StartsWith("Container1") && !allowStoreInChests.Value))
                     continue;
-                
+
                 int _inventoryId = AccessTools.FieldRefAccess<InventoryAssociated, int>(ial[i], "_inventoryId");
                 var inventory = InventoriesHandler.Instance.GetInventoryById(_inventoryId);
 
-                if (inventory is null || inventory == Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory() || inventory.IsFull())
+                if (inventory is null || inventory == backpackInventory)
                     continue;
+
+                // Snapshot this container's current contents (for storeIfAlreadyContains filter).
                 var objList = inventory.GetInsideWorldObjects().ToList();
-                Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m");
+
+                // Compute optimistic remaining capacity for this container this call.
+                // This is an estimate for loop control only — the server RPC remains authoritative.
+                int remainingCapacity = inventory.GetSize() - objList.Count;
+                if (remainingCapacity <= 0)
+                    continue;
+
+                Dbgl($"checking close inventory {ial[i].name}: {ial[i].transform.position}, {pos}: {dist}m, capacity: {remainingCapacity}");
 
                 if (!string.IsNullOrEmpty(requireNameFlagtoStore.Value) && !ial[i].GetComponent<WorldObjectText>().GetText().ToLower().Contains($"{requireNameFlagtoStore.Value}"))
                     continue;
 
                 var containerName = ial[i].GetComponent<WorldObjectText>()?.GetText().ToLower();
 
-                for (int j = objects.Count - 1; j >= 0; j--)
+                for (int j = backpackSnapshot.Count - 1; j >= 0; j--)
                 {
-                    if (inventory.IsFull())
+                    // Skip if this item is already claimed for a different container.
+                    if (claimedItems.Contains(backpackSnapshot[j]))
+                        continue;
+
+                    // Stop if container is now at capacity (via our optimistic local tracking).
+                    if (remainingCapacity <= 0)
                         break;
+
                     if (allowList.Value.Length > 0)
                     {
-                        if (!allow.Contains(objects[j].GetGroup().GetId()))
+                        if (!allow.Contains(backpackSnapshot[j].GetGroup().GetId()))
                             continue;
                     }
                     else if (disallowList.Value.Length > 0)
                     {
-                        if (disallow.Contains(objects[j].GetGroup().GetId()))
+                        if (disallow.Contains(backpackSnapshot[j].GetGroup().GetId()))
                             continue;
                     }
-                    var itemName = Readable.GetGroupName(objects[j].GetGroup()).ToLower();
+
+                    var itemName = Readable.GetGroupName(backpackSnapshot[j].GetGroup()).ToLower();
                     if (
                         (!storeIfContainerNameExact.Value || containerName != itemName) &&
                         (!storeIfContainerNameContains.Value || !containerName.Contains(itemName)) &&
-                        (!storeIfAlreadyContains.Value || !objList.Exists(o => o.GetGroup() == objects[j].GetGroup()))
+                        (!storeIfAlreadyContains.Value || !objList.Exists(o => o.GetGroup() == backpackSnapshot[j].GetGroup()))
                         )
                         continue;
-                    Dbgl($"Storing {objects[j].GetGroup()} in {ial[i].name}");
-                    if (inventory.AddItem(objects[j]))
+
+                    // Item passes all filters. Claim it and queue the move.
+                    // Capture needed locals inside the loop body so each iteration's closure is independent.
+                    var itemToMove = backpackSnapshot[j];
+                    var groupName = Readable.GetGroupName(itemToMove.GetGroup());
+                    var groupImage = itemToMove.GetGroup().GetImage();
+
+                    claimedItems.Add(itemToMove);
+                    unclaimedCount--;
+                    remainingCapacity--;
+
+                    Dbgl($"Queuing move of {groupName} to {ial[i].name}");
+
+                    // Use the safe async wrapper. The result callback is deferred via queued ClientRpc.
+                    NetcodeUtils.MoveItemBetweenInventories(itemToMove, backpackInventory, inventory, true, success =>
                     {
-                        informationsDisplayer.AddInformation(2f, Readable.GetGroupName(objects[j].GetGroup()), DataConfig.UiInformationsType.OutInventory, objects[j].GetGroup().GetImage());
-                        Managers.GetManager<PlayersManager>().GetActivePlayerController().GetPlayerBackpack().GetInventory().RemoveItem(objects[j]);
-                        //objects.RemoveAt(j);
-                    }
+                        if (success)
+                        {
+                            Managers.GetManager<DisplayersHandler>()?.GetInformationsDisplayer()
+                                ?.AddInformation(2f, groupName, DataConfig.UiInformationsType.OutInventory, groupImage);
+                        }
+                        Dbgl($"Move of {groupName} to container: {(success ? "succeeded" : "failed")}");
+                    });
                 }
 
-                if (objects.Count == 0)
+                // Stop scanning containers once all backpack items have been claimed by some container.
+                if (unclaimedCount == 0)
                 {
                     Dbgl($"stored all items");
-                    return;
+                    break;
                 }
             }
         }

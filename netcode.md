@@ -234,11 +234,13 @@ Before submitting a mod that interacts with the world, inventory, or craft syste
 
 ## 8. References
 
+- **Archived IL evidence:** [`reference/decompiled-il/`](reference/decompiled-il/) — raw IL disassembly of key `Assembly-CSharp.dll` classes (InventoriesHandler, Inventory, WorldObjectsHandler, etc.), preserved as evidence backing this document's claims. See [`reference/decompiled-il/README.md`](reference/decompiled-il/README.md) for details.
+
 - **Game assembly:** `F:\SteamLibrary\steamapps\common\The Planet Crafter\Planet Crafter_Data\Managed\Assembly-CSharp.dll`
   - Decompile this to inspect `SpaceCraft.InventoriesHandler`, `SpaceCraft.WorldObjectsHandler`, `SpaceCraft.Inventory`, and related classes
   - Use dnSpy, ILSpy, or similar; or fallback to `ildasm.exe` for raw IL disassembly
   
 - **Unity Netcode for GameObjects DLL:** Referenced in [`solution.targets`](solution.targets) (lines 221–225), resolved via `$(ManagedDataPath)` pointing to your game's `Managed` folder
 
-- **No shared utility class exists** in this repo for netcode helpers today — all the patterns above are raw `NetworkManager.Singleton` or direct wrapper calls. If a future initiative wants to centralize netcode guards/helpers, it would go in a new `AedenthornUtils` netcode module.
+- **Shared netcode utility class:** [`AedenthornUtils/NetcodeUtils.cs`](AedenthornUtils/NetcodeUtils.cs) — role detection helpers and async-safe inventory transfer wrapper, meant for reuse by other mod fixes (see class header for planned additions like spawn/despawn wrappers).
 

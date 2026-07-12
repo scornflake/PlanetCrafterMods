@@ -33,7 +33,15 @@
       "Bash(awk 'NR>=4700 && NR<=4800' C:/Users/neil/AppData/Local/Temp/claude/d--Development-PlanetCrafterMods/64fc50b8-f681-41bc-a7c4-ff0d31b577f8/scratchpad/WorldObjectsHandler.il)",
       "Bash(awk -F: '$1<4400')",
       "Bash(grep -v \"^\\\\s*//\")",
-      "Bash(awk -F: -v l=64743 '$1<l{last=$0} END{print last}')"
+      "Bash(awk -F: -v l=64743 '$1<l{last=$0} END{print last}')",
+      "Bash(mkdir -p \"d:\\\\Development\\\\PlanetCrafterMods\\\\reference\\\\decompiled-il\")",
+      "Bash(cp \"C:\\\\Users\\\\neil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Development-PlanetCrafterMods\\\\64fc50b8-f681-41bc-a7c4-ff0d31b577f8\\\\scratchpad\\\\InventoriesHandler.il\" .)",
+      "Bash(cp \"C:\\\\Users\\\\neil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Development-PlanetCrafterMods\\\\64fc50b8-f681-41bc-a7c4-ff0d31b577f8\\\\scratchpad\\\\Inventory.il\" .)",
+      "Bash(cp \"C:\\\\Users\\\\neil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Development-PlanetCrafterMods\\\\64fc50b8-f681-41bc-a7c4-ff0d31b577f8\\\\scratchpad\\\\WorldObject.il\" .)",
+      "Bash(cp \"C:\\\\Users\\\\neil\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\d--Development-PlanetCrafterMods\\\\64fc50b8-f681-41bc-a7c4-ff0d31b577f8\\\\scratchpad\\\\WorldObjectsHandler.il\" .)",
+      "Bash(dotnet build *)",
+      "PowerShell(d:\\\\Development\\\\PlanetCrafterMods\\\\cleanup-build-artifacts.ps1)",
+      "PowerShell(Get-ChildItem -Path \"d:\\\\Development\\\\PlanetCrafterMods\" -Recurse -Filter \"QuickStore.dll\" -o Depth 5)"
     ]
   }
 }
