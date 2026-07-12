@@ -220,7 +220,83 @@ This **is a valid pattern** for read-only access to `NetworkVariable` state from
 
 ---
 
-## 7. Checklist for Future Mod PRs
+## 7. Case Study: Container Discovery on Remote Clients (`InventoryAssociatedProxy`)
+
+This is a **different class of bug** from section 4's QuickStore case study. Section 4 is about *mutating* an inventory unsafely once you have a reference to it. This section is about a prior step that can silently fail on remote clients: *finding* the container's `Inventory` in the first place. A mod can call the safe `InventoriesHandler` wrappers perfectly and still do nothing for remote players, because it never located their container's `Inventory` to begin with.
+
+### Symptom
+
+QuickStore's `FindObjectsByType<InventoryAssociated>()` scan (used to locate nearby chests/lockers named `Container1`/`Container2`/`Container3`) found **zero** matches for a remote (non-host) player's own placed storage — even with `FindObjectsInactive.Include`. The objects were not merely inactive; they were absent from the `InventoryAssociated`-component scan entirely. `CraftFromContainers` had the identical bug (same scan pattern, same symptom), un-fixed until this was diagnosed.
+
+### Root Cause
+
+Confirmed by decompiling `Assembly-CSharp.dll` with `ildasm` (see [`reference/decompiled-il/README.md`](reference/decompiled-il/README.md) for the process; DLL at `F:\SteamLibrary\steamapps\common\The Planet Crafter\Planet Crafter_Data\Managed\Assembly-CSharp.dll`) and by production diagnostic logging from an actual remote player.
+
+The game represents a container's `Inventory` differently depending on host vs. remote-client role:
+
+| Role | How the container's `Inventory` is reached |
+|------|----------------------------------------------|
+| Host / server | `SpaceCraft.InventoryAssociated` component sits **directly on the container's own GameObject**. Its private `_inventoryId` field can be read via reflection (`AccessTools.FieldRefAccess<InventoryAssociated, int>`) and resolved **synchronously** via `InventoriesHandler.Instance.GetInventoryById(int)`. |
+| Remote (non-server) client | The same container's `InventoryAssociated` component is **not present**. Instead, the inventory is only reachable through a separate component, `SpaceCraft.InventoryAssociatedProxy` (a `NetworkBehaviour`, typically found via `GetComponentInParent<InventoryAssociatedProxy>()` from the container's Transform), via the **asynchronous** public API `GetInventory(Action<Inventory, WorldObject> callback)`. |
+
+The game's own code already anticipates this split — decompiled `InventoryAssociated.GetInventory()` itself checks for a parent `InventoryAssociatedProxy` and delegates to it when present. Mods that only scan for `InventoryAssociated` and read `_inventoryId` via reflection are using the host-only-safe half of this pattern and silently miss every remote-client-proxied container.
+
+`InventoryAssociatedProxy.GetInventory()`'s internal branches (from the decompiled IL):
+- Not yet spawned → waits via a coroutine, then retries.
+- `IsServer` → resolves synchronously (same as the host `InventoryAssociated` path).
+- Client, `_inventoryId` already known (`> -1`) → resolves via `InventoriesHandler.GetInventoryById(id, callback)` — **still asynchronous**, deferred via the same queued-ClientRpc pattern documented in section 4.
+- Client, `_inventoryId` unknown (`-1`) → enqueues the callback and fires `GetInventoryIdServerRpc()`, resolving once the host replies.
+
+**Do not read the proxy's private `_inventoryId` field directly via reflection** the way the host path does — it can legitimately be `-1` until the RPC round-trip completes, and even once cached, resolving it is never synchronous. You must call the public `GetInventory(callback)` API.
+
+### Diagnostic Technique (reusable for future "why can't a remote client find X" bugs)
+
+The failure mode ("0 matches") looks identical whether an object (a) genuinely doesn't exist for that client, (b) exists but the expected component never attached, or (c) exists under the game's alternate representation. To disambiguate, run **two independent scans** and compare:
+
+1. `FindObjectsByType<InventoryAssociated>(FindObjectsInactive.Include, ...)` filtered by name — the "expected" component-based scan.
+2. `FindObjectsByType<Transform>(FindObjectsInactive.Include, ...)` filtered by the **same name pattern**, independent of any component — a raw scan that answers "does the GameObject exist at all?" For each match, log `GetComponent<InventoryAssociated>() != null`, `GetComponentInParent<InventoryAssociatedProxy>() != null`, and `GetComponentInParent<NetworkObject>() != null`.
+
+If (1) finds 0 and (2) finds N with `hasProxyInParent=True` on every match, that's the `InventoryAssociatedProxy` pattern, not a replication/spawn gap. This is exactly the signature that broke the case here (51 `InventoryAssociated` matches total, 0 of them Container-named, vs. 53 raw-name matches, all proxy-backed).
+
+### The Fix
+
+Use the shared helper [`AedenthornUtils/InventoryAssociatedUtils.cs`](AedenthornUtils/InventoryAssociatedUtils.cs) instead of scanning `InventoryAssociated` directly:
+
+```csharp
+// Find candidates matching a name predicate — handles both host-direct and remote-proxy-only
+// objects uniformly, without resolving their Inventory yet.
+var candidates = InventoryAssociatedUtils.FindCandidates(name => name.StartsWith("Container1"), logDiag: null);
+
+foreach (var candidate in candidates)
+{
+    // Do your cheap synchronous filtering first (distance, capacity, allow-lists) — resolving
+    // a proxy-backed candidate may fire a ServerRpc, so don't resolve everything eagerly.
+    if (Vector3.Distance(candidate.Transform.position, playerPos) > range)
+        continue;
+
+    // Resolves synchronously for host-direct candidates, asynchronously (after a possible
+    // ServerRpc round-trip) for proxy-backed ones. Always invokes the callback exactly once.
+    InventoryAssociatedUtils.ResolveInventory(candidate, inventory =>
+    {
+        if (inventory == null) return;
+        // ... use inventory ...
+    });
+}
+```
+
+Both QuickStore (`0.7.7`+) and CraftFromContainers (`0.7.2`+) now use this. See `QuickStore/BepInExPlugin.cs`'s `StoreItems()` for a complete worked example.
+
+### A Sharper Gotcha: Async Resolution vs. Synchronous Harmony Postfixes
+
+`ResolveInventory`'s asynchronous branch is a real constraint, not just a style wrinkle. If the calling code is a **Harmony Postfix that mutates a `__result` the caller already holds** (e.g. `CraftFromContainers`'s patch on `Inventory.ItemsContainsStatus`, used to gate whether a build can start), an async-resolved proxy candidate's contribution to `__result` arrives **after** the Postfix has already returned and the caller has already read the (incomplete) result. This is not fixable by "waiting harder" — a Harmony Postfix cannot suspend and there is no synchronous path to a proxy-backed `Inventory`, ever, per the IL evidence above.
+
+Mitigation used here: `InventoryAssociatedUtils.ResolveInventoryCached` (a `ResolveInventory` wrapper backed by a `ConditionalWeakTable<Transform, Inventory>` cache) makes the *first* resolution for a given container asynchronous (so the very first check after a remote player approaches their own proxy-backed chest can still fail), but every *subsequent* resolution for that same container synchronous (cache hit) — so a retry succeeds. This is a genuine limitation, not a full fix; document it in any mod that hits this pattern rather than assuming the cache makes it disappear.
+
+**Rule of thumb:** if you're writing a Harmony Postfix (or any hook whose caller consumes a return value synchronously) that needs a container's `Inventory`, check whether it can tolerate "may be stale/incomplete on the very first call, correct thereafter" before relying on `InventoryAssociatedProxy`-backed resolution. If it can't tolerate that, the architecture needs to change (e.g. pre-warm/cache resolution proactively, well before the gating check runs) rather than trying to resolve on demand.
+
+---
+
+## 8. Checklist for Future Mod PRs
 
 Before submitting a mod that interacts with the world, inventory, or craft system:
 
@@ -232,9 +308,9 @@ Before submitting a mod that interacts with the world, inventory, or craft syste
 
 ---
 
-## 8. References
+## 9. References
 
-- **Archived IL evidence:** [`reference/decompiled-il/`](reference/decompiled-il/) — raw IL disassembly of key `Assembly-CSharp.dll` classes (InventoriesHandler, Inventory, WorldObjectsHandler, etc.), preserved as evidence backing this document's claims. See [`reference/decompiled-il/README.md`](reference/decompiled-il/README.md) for details.
+- **Archived IL evidence:** [`reference/decompiled-il/`](reference/decompiled-il/) — raw IL disassembly of key `Assembly-CSharp.dll` classes (InventoriesHandler, Inventory, WorldObjectsHandler, etc.), preserved as evidence backing this document's claims. See [`reference/decompiled-il/README.md`](reference/decompiled-il/README.md) for details. Does not yet include `InventoryAssociated`/`InventoryAssociatedProxy` (section 7's evidence) — re-decompile per that README's instructions if you need to re-verify.
 
 - **Game assembly:** `F:\SteamLibrary\steamapps\common\The Planet Crafter\Planet Crafter_Data\Managed\Assembly-CSharp.dll`
   - Decompile this to inspect `SpaceCraft.InventoriesHandler`, `SpaceCraft.WorldObjectsHandler`, `SpaceCraft.Inventory`, and related classes
@@ -243,4 +319,6 @@ Before submitting a mod that interacts with the world, inventory, or craft syste
 - **Unity Netcode for GameObjects DLL:** Referenced in [`solution.targets`](solution.targets) (lines 221–225), resolved via `$(ManagedDataPath)` pointing to your game's `Managed` folder
 
 - **Shared netcode utility class:** [`AedenthornUtils/NetcodeUtils.cs`](AedenthornUtils/NetcodeUtils.cs) — role detection helpers and async-safe inventory transfer wrapper, meant for reuse by other mod fixes (see class header for planned additions like spawn/despawn wrappers).
+
+- **Shared container-discovery utility class:** [`AedenthornUtils/InventoryAssociatedUtils.cs`](AedenthornUtils/InventoryAssociatedUtils.cs) — `FindCandidates`/`ResolveInventory`/`ResolveInventoryCached`, implementing the pattern from section 7. Use this instead of scanning `InventoryAssociated` directly in any new mod that needs to locate storage containers.
 
