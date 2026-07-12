@@ -34,13 +34,9 @@ A full `dotnet build PlanetCrafterMods.sln` creates hundreds of temporary artifa
 - **One `.zip` file per project** (packaged build outputs, typically in `<project>\bin\<config>\Release\`)
 - **Total disk usage: ~150–200 MB of temporary files**
 
-**Always run the cleanup script after a full build** to restore the workspace to a clean state:
+`bin/`, `obj/`, and `*.zip` are already covered by `.gitignore`, so they never show up in `git status` — no cleanup step is needed before checking status or committing.
 
-```powershell
-.\cleanup-build-artifacts.ps1
-```
-
-This is safe — it only removes `bin/`, `obj/`, and `.zip` files; all source code remains untouched. Run it before checking git status or committing, to avoid accidentally staging build artifacts.
+**`cleanup-build-artifacts.ps1` is a different, unrelated script — read it before running it.** Despite its name, it does not touch repo build artifacts at all. It deletes `.dll` files from the **live game's** BepInEx plugins folder (`F:\SteamLibrary\steamapps\common\The Planet Crafter\BepInEx\plugins`), keeping only a hardcoded allowlist (`$keepFiles` in the script — currently `QuickStore.dll`, `CraftFromContainers.dll`, `CustomFlashlight.dll`). Running it will silently remove any other mod's deployed DLL from the game install, including ones you just built. Only run it when you actually intend to prune stale deployed mods from the game folder, and update `$keepFiles` first if a mod you're working on should survive the prune.
 
 ## Key Files and Conventions
 
@@ -94,9 +90,8 @@ See `netcode.md` section 3 (Safe Entry Points) for the full reference table.
 
 ## Testing and Verification
 
-- **Build verification:** `dotnet build PlanetCrafterMods.sln -c Release` should complete with no errors in QuickStore, CustomWeatherEvents, and other "known good" mods. (Some mods like Cheats, CustomAudio, ConstructToInventory may have pre-existing issues unrelated to your changes.)
+- **Build verification:** `dotnet build PlanetCrafterMods.sln -c Release` should complete with no errors in QuickStore, CraftFromContainers, ConstructToInventory, CustomWeatherEvents, and other "known good" mods. (Some mods like Cheats, CustomAudio may have pre-existing issues unrelated to your changes.)
 - **Quick mod test:** `dotnet build <ModFolder>/<ModName>.csproj -c Release` builds just one mod.
-- **Cleanup before status check:** Always run `.\cleanup-build-artifacts.ps1` before `git status` to avoid staging temp files.
 
 ## Investigation Evidence
 
@@ -115,17 +110,17 @@ See `reference/decompiled-il/README.md` for detailed regeneration steps.
 
 - **No destructive operations without confirmation:** Always check `git status` before `git reset --hard` or similar.
 - **Commit message style:** Brief, imperative ("Add X", "Fix Y", "Refactor Z"), referencing the mod(s) affected and the reason (not just the what).
-- **Ignore build artifacts:** `.gitignore` should already exclude `bin/`, `obj/`, `*.zip`, and `solution_private.targets`. If you see these in `git status`, run the cleanup script and re-check.
+- **Ignore build artifacts:** `.gitignore` should already exclude `bin/`, `obj/`, `*.zip`, and `solution_private.targets`. If you see these in `git status`, check `.gitignore` — the cleanup script does **not** address this (see "After a Full Build" above).
 
 ## Known Issues and Limitations
 
-- **Some mods have pre-existing build failures** (e.g., Cheats depends on `MijuTools`, ConstructToInventory has API drift in `WorldObjectsHandler.CreateNewWorldObject`). These are not blockers for other mod work — the solution builds with warnings/errors but other mods succeed.
+- **Some mods have pre-existing build failures** (e.g., Cheats depends on `MijuTools`). These are not blockers for other mod work — the solution builds with warnings/errors but other mods succeed.
 - **solution_private.targets is gitignored** — each developer must create their own, pointing to their game installation. The repo won't build without it (you'll get DLL resolution errors). If you see a build error like "Assembly-CSharp.dll not found," check that `solution_private.targets` exists.
 - **No IL disassembler installed by default** — use `ildasm.exe` (part of .NET Framework SDK) or install ILSpy/dnSpy if you need interactive decompilation.
 
 ## For Future Work
 
-When fixing other mods identified in `netcode.md`'s audit table (CraftFromContainers, AutoMine, ChatCommands, SpawnObject, ConstructToInventory, Delete):
+When fixing other mods identified in `netcode.md`'s audit table (CraftFromContainers, AutoMine, ChatCommands, SpawnObject):
 
 1. Read the audit entry and understand the exact anti-pattern.
 2. Refer to `netcode.md` section 3 (Safe Entry Points) for the replacement API.
