@@ -14,7 +14,7 @@ using Debug = UnityEngine.Debug;
 
 namespace CraftFromContainers
 {
-    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.4")]
+    [BepInPlugin("aedenthorn.CraftFromContainers", "Craft From Containers", "0.7.5")]
     public partial class BepInExPlugin : BaseUnityPlugin
     {
         private static BepInExPlugin context;
@@ -179,6 +179,13 @@ namespace CraftFromContainers
                                     var itemToRemove = containerSnapshot[j];
                                     var groupName = Readable.GetGroupName(itemToRemove.GetGroup());
                                     Dbgl($"\tqueuing removal of {groupName}");
+
+                                    // Remove from the snapshot immediately so a recipe requiring
+                                    // multiple units of the same Group (thisGroups contains it
+                                    // more than once) picks a different WorldObject each time,
+                                    // instead of re-matching (and double-queuing removal of) the
+                                    // same instance.
+                                    containerSnapshot.RemoveAt(j);
 
                                     // Use the safe async wrapper. The result callback is deferred via queued ClientRpc.
                                     NetcodeUtils.RemoveItemFromInventory(itemToRemove, inventory, success =>
