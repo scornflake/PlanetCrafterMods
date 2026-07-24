@@ -2,10 +2,10 @@ $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Curr
 $projects = @("QuickStore", "CraftFromContainers", "ConstructToInventory")
 $releaseDir = "$PSScriptRoot\Release"
 
-# Build projects
+# Build projects (SolutionDir required — TargetFramework comes from solution.targets)
 foreach ($project in $projects) {
     Write-Host "Building $project..." -ForegroundColor Cyan
-    & $msbuild "$PSScriptRoot\$project\$project.csproj" /p:Configuration=Debug /p:SolutionDir="$PSScriptRoot\" /nologo /v:minimal
+    & $msbuild "$PSScriptRoot\$project\$project.csproj" /restore /p:Configuration=Debug /p:SolutionDir="$PSScriptRoot\" /nologo /v:minimal
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Build failed for $project" -ForegroundColor Red
         exit 1

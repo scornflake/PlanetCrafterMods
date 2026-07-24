@@ -13,16 +13,15 @@ using UnityEngine;
 ///   component whose private "_inventoryId" field can be read via reflection and resolved
 ///   synchronously via <c>InventoriesHandler.Instance.GetInventoryById(id)</c>.
 /// - Remote (non-server) client: the same container instead only exposes its inventory through a
-///   <see cref="InventoryAssociatedProxy"/> (a NetworkBehaviour, usually found via
-///   GetComponentInParent), whose <c>GetInventory(Action&lt;Inventory, WorldObject&gt;)</c> is
-///   asynchronous — it may fire a ServerRpc and wait for the host's response before invoking the
-///   callback. The proxy's own private "_inventoryId" can legitimately be -1 until then, so it is
-///   not safe to read via reflection the way the host path does; GetInventory(callback) must be
-///   used instead.
+///   <see cref="InventoryAssociatedProxy"/> (a NetworkBehaviour on the inventory root), whose
+///   <c>GetInventory(Action&lt;Inventory, WorldObject&gt;)</c> is asynchronous — it may fire a
+///   ServerRpc and wait for the host's response before invoking the callback. The proxy's own
+///   private "_inventoryId" can legitimately be -1 until then, so it is not safe to read via
+///   reflection the way the host path does; GetInventory(callback) must be used instead.
 ///
 /// Confirmed by decompiling Assembly-CSharp.dll (see reference/decompiled-il/README.md) and by
-/// production diagnostic logging from a remote client (0 InventoryAssociated matches, 53 raw-name
-/// matches, all with a InventoryAssociatedProxy in the parent chain).
+/// production diagnostic logging from a remote client (0 InventoryAssociated matches; one
+/// InventoryAssociatedProxy per real inventory).
 /// </summary>
 public static class InventoryAssociatedUtils
 {
@@ -41,7 +40,7 @@ public static class InventoryAssociatedUtils
         /// <summary>The candidate GameObject's name, as matched by the nameFilter passed to FindCandidates.</summary>
         public string Name { get; }
 
-        /// <summary>The candidate's own transform (its GameObject may carry the InventoryAssociated, or be a child of one with a InventoryAssociatedProxy in its parent chain).</summary>
+        /// <summary>The candidate's own transform (the GameObject that carries InventoryAssociated and/or InventoryAssociatedProxy).</summary>
         public Transform Transform { get; }
 
         /// <summary>True if this candidate can only be resolved via the asynchronous InventoryAssociatedProxy path (typically: a remote, non-host client).</summary>
@@ -60,14 +59,16 @@ public static class InventoryAssociatedUtils
     }
 
     /// <summary>
-    /// Find all scene objects (active or inactive) whose name matches <paramref name="nameFilter"/>
-    /// and that carry a resolvable inventory, whether directly (host: InventoryAssociated on the
-    /// object itself) or only via a InventoryAssociatedProxy in their parent chain (remote client).
+    /// Find all scene inventories (active or inactive) whose GameObject name matches
+    /// <paramref name="nameFilter"/>, whether represented by <see cref="InventoryAssociated"/>
+    /// (host) or <see cref="InventoryAssociatedProxy"/> (remote client). One component instance
+    /// yields one candidate — discovery does not walk every Transform / child under a proxy.
     ///
     /// Does not resolve any inventory itself — see <see cref="ResolveInventory"/>. Direct
-    /// candidates are returned before proxy-backed ones.
+    /// candidates are returned before proxy-backed ones. If both components exist on the same
+    /// GameObject, only the direct (host) candidate is kept.
     /// </summary>
-    /// <param name="nameFilter">Predicate tested against each candidate GameObject's name.</param>
+    /// <param name="nameFilter">Predicate tested against each inventory root GameObject's name.</param>
     /// <param name="logDiag">Optional diagnostic logger, called with one message per line describing what was found (counts, active state, proxy presence, etc.). Pass null to skip this entirely, e.g. when a mod's debug config option is off.</param>
     public static List<InventoryAssociatedCandidate> FindCandidates(Func<string, bool> nameFilter, Action<string> logDiag = null)
     {
@@ -99,34 +100,33 @@ public static class InventoryAssociatedUtils
             }
         }
 
-        // On remote (non-host) clients, some containers are only reachable via
-        // InventoryAssociatedProxy rather than an InventoryAssociated component directly on their
-        // own GameObject. Only name-matched objects are searched here (not every Transform in the
-        // scene) to keep this bounded.
-        var allTransforms = UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
+        // On remote (non-host) clients, containers are only reachable via InventoryAssociatedProxy.
+        // Enumerate those components directly (one proxy = one inventory) instead of scanning every
+        // Transform and walking GetComponentInParent — that flooded InventoriesHandler with tens of
+        // thousands of GetInventory callbacks when nameFilter accepted all names.
+        var allProxies = UnityEngine.Object.FindObjectsByType<InventoryAssociatedProxy>(FindObjectsInactive.Include, FindObjectsSortMode.InstanceID);
         var proxyMatches = new List<InventoryAssociatedCandidate>();
 
-        foreach (var t in allTransforms)
+        foreach (var proxy in allProxies)
         {
-            if (!nameFilter(t.name) || directGameObjects.Contains(t.gameObject))
+            if (proxy == null || directGameObjects.Contains(proxy.gameObject))
             {
                 continue;
             }
-            var proxy = t.GetComponentInParent<InventoryAssociatedProxy>();
-            if (proxy == null)
+            if (!nameFilter(proxy.name))
             {
                 continue;
             }
-            proxyMatches.Add(new InventoryAssociatedCandidate(t.name, t, null, proxy));
+            proxyMatches.Add(new InventoryAssociatedCandidate(proxy.name, proxy.transform, null, proxy));
         }
 
         if (logDiag != null)
         {
-            logDiag($"found {proxyMatches.Count} name-matched GameObjects reachable only via InventoryAssociatedProxy");
+            logDiag($"found {proxyMatches.Count} name-matched InventoryAssociatedProxy inventories");
             foreach (var c in proxyMatches)
             {
                 var netObj = c.Transform.GetComponentInParent<Unity.Netcode.NetworkObject>();
-                logDiag($"proxy {c.Name} activeInHierarchy={c.Transform.gameObject.activeInHierarchy} hasProxyInParent=True hasNetworkObjectInParent={netObj != null} pos={c.Transform.position}");
+                logDiag($"proxy {c.Name} activeInHierarchy={c.Transform.gameObject.activeInHierarchy} hasNetworkObjectInParent={netObj != null} pos={c.Transform.position}");
             }
         }
 
